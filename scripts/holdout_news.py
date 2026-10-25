@@ -10,6 +10,7 @@ reference (it already happened by the time we can act).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from atlas.ml.news_model import (
     identity_tokens,
     news_day_index,
 )
+from atlas.recommend.engine import Registry, SignalRecord
 from atlas.research import load_research_data
 
 OUT = Path("data/reports/holdout_news")
@@ -40,6 +42,12 @@ def t_stat(x: pd.Series) -> float:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--train-end", default="2024-12-31")
+    ap.add_argument(
+        "--val-start",
+        default="2024-01-01",
+        help="neural head early-stops on this final training year",
+    )
+    ap.add_argument("--models", nargs="*", default=["tfidf", "embed_linear", "embed_mlp"])
     ap.add_argument(
         "--tickers",
         nargs="*",
@@ -80,73 +88,107 @@ def main() -> None:
     )
 
     masked = identity_tokens(train)
-    model = NewsSentimentModel(stop_words=masked).fit(train["text"], train["reaction"])
-    pos_w, neg_w = model.top_words(15)
     print(f"masked {len(masked):,} company-identity words")
-    print("learned positive words:", ", ".join(pos_w))
-    print("learned negative words:", ", ".join(neg_w))
+    split = idx.searchsorted(pd.Timestamp(args.val_start, tz="UTC"))
+    fit_rows, val_rows = train[train["d0"] + 1 < split], train[train["d0"] >= split]
 
-    day = daily_scores(test, model.score(test["text"]))
-    dd, jj = day["d0"].to_numpy(), day["symbol"].map(col).to_numpy()
-    day["same_day"] = abn(c[dd, jj], c[dd - 1, jj], sc[dd], sc[dd - 1])
-    day["next_day"] = abn(c[dd + 1, jj], o[dd + 1, jj], sc[dd + 1], so[dd + 1])
-    day["next_5d"] = abn(c[dd + 5, jj], o[dd + 1, jj], sc[dd + 5], so[dd + 1])
-    day["date"] = idx[dd].date
-    day = day.dropna(subset=["next_day"])
-    strong = day["score"].abs() >= day["score"].abs().quantile(0.7)
+    scores: dict[str, np.ndarray] = {}
+    if "tfidf" in args.models:
+        m = NewsSentimentModel(stop_words=masked).fit(train["text"], train["reaction"])
+        pos_w, neg_w = m.top_words(12)
+        print("tfidf positive words:", ", ".join(pos_w))
+        print("tfidf negative words:", ", ".join(neg_w))
+        scores["tfidf"] = m.score(test["text"])
+    if {"embed_linear", "embed_mlp"} & set(args.models):
+        from sklearn.linear_model import LogisticRegression
 
-    print(
-        f"\n=== 1. ACCURACY on 2025-2026 ({len(day):,} stock-days with news, "
-        f"{day['date'].nunique()} days) ==="
-    )
-    print("  'right' = sign of sentiment matches sign of the market-adjusted return\n")
-    for name, colname, note in [
-        ("Same day (reference, NOT tradeable)", "same_day", "the news already moved it"),
-        ("Next day, open to close (tradeable)", "next_day", "buy at next open"),
-        ("Next 5 days from next open (tradeable)", "next_5d", ""),
-    ]:
-        right = np.sign(day["score"]) == np.sign(day[colname])
-        r_strong = right[strong]
-        print(
-            f"  {name:42s} all news {right.mean():.1%} | strongest 30% {r_strong.mean():.1%}"
-            f"   {note}"
-        )
+        from atlas.ml.text_embed import NeuralHead, embed_cached
 
-    def daily_ls(colname: str) -> pd.Series:
-        def one(g: pd.DataFrame) -> float:
-            if len(g) < 10:
-                return np.nan
-            q = g["score"].rank(pct=True)
-            return g.loc[q >= 0.8, colname].mean() - g.loc[q <= 0.2, colname].mean()
-
-        return day.groupby("date").apply(one).dropna()
-
-    def daily_ic(colname: str) -> pd.Series:
-        return (
-            day.groupby("date")
-            .apply(
-                lambda g: (
-                    stats.spearmanr(g["score"], g[colname]).statistic if len(g) >= 10 else np.nan
-                )
+        both = pd.concat([train, test])
+        mask_id = hashlib.sha1(" ".join(sorted(masked)).encode()).hexdigest()[:10]
+        emb = embed_cached(both, masked, f"data/news_emb/embeddings_{mask_id}.npz")
+        e_train, e_test = emb[: len(train)], emb[len(train) :]
+        r = train["reaction"].to_numpy()
+        if "embed_linear" in args.models:
+            lo, hi = np.quantile(r, 0.3), np.quantile(r, 0.7)
+            keep = (r <= lo) | (r >= hi)
+            clf = LogisticRegression(C=0.5, max_iter=3000).fit(e_train[keep], r[keep] >= hi)
+            scores["embed_linear"] = clf.predict_proba(e_test)[:, 1] - 0.5
+        if "embed_mlp" in args.models:
+            fit_mask = (train["d0"] + 1 < split).to_numpy()
+            head = NeuralHead().fit(
+                e_train[fit_mask], r[fit_mask], e_train[~fit_mask], r[~fit_mask]
             )
-            .dropna()
-        )
+            print(
+                f"neural head: {len(head.history)} epochs, best validation loss "
+                f"{min(v for _, v in head.history):.4f} (coin flip 0.6931)"
+            )
+            scores["embed_mlp"] = head.score(e_test)
+    del fit_rows, val_rows
 
-    print("\n=== 2. Ranking skill and a daily long/short test ===")
+    def evaluate(name: str, article_scores: np.ndarray) -> tuple[pd.DataFrame, dict]:
+        day = daily_scores(test, article_scores)
+        dd, jj = day["d0"].to_numpy(), day["symbol"].map(col).to_numpy()
+        day["same_day"] = abn(c[dd, jj], c[dd - 1, jj], sc[dd], sc[dd - 1])
+        day["next_day"] = abn(c[dd + 1, jj], o[dd + 1, jj], sc[dd + 1], so[dd + 1])
+        day["next_5d"] = abn(c[dd + 5, jj], o[dd + 1, jj], sc[dd + 5], so[dd + 1])
+        day["date"] = idx[dd].date
+        day = day.dropna(subset=["next_day"])
+        strong = day["score"].abs() >= day["score"].abs().quantile(0.7)
+        res: dict = {"model": name, "stock_days": len(day)}
+        for colname in ("same_day", "next_day", "next_5d"):
+            right = np.sign(day["score"]) == np.sign(day[colname])
+            ic = (
+                day.groupby("date")
+                .apply(
+                    lambda g, cn=colname: (
+                        stats.spearmanr(g["score"], g[cn]).statistic if len(g) >= 10 else np.nan
+                    )
+                )
+                .dropna()
+            )
+
+            def ls_one(g: pd.DataFrame, cn: str = colname) -> float:
+                if len(g) < 10:
+                    return np.nan
+                q = g["score"].rank(pct=True)
+                return g.loc[q >= 0.8, cn].mean() - g.loc[q <= 0.2, cn].mean()
+
+            ls = day.groupby("date").apply(ls_one).dropna()
+            res[f"{colname}_acc"] = right.mean()
+            res[f"{colname}_acc_strong"] = right[strong].mean()
+            res[f"{colname}_ic"] = ic.mean()
+            res[f"{colname}_ic_t"] = t_stat(ic)
+            res[f"{colname}_ls"] = ls.mean()
+            res[f"{colname}_ls_t"] = t_stat(ls)
+            res[f"{colname}_ls_net"] = ls.mean() - 2 * COST_ROUND_TRIP
+        return day, res
+
+    results, days = [], {}
+    for name, sc_ in scores.items():
+        days[name], res = evaluate(name, sc_)
+        results.append(res)
+    table = pd.DataFrame(results).set_index("model")
+    print(f"\n=== 1. Model comparison, frozen 2025-2026 ({len(test):,} article-stock pairs) ===")
     for colname, label in [
-        ("same_day", "same day (reference)"),
-        ("next_day", "next day"),
-        ("next_5d", "next 5 days"),
+        ("same_day", "SAME DAY (reference, not tradeable)"),
+        ("next_day", "NEXT DAY from next open (tradeable)"),
+        ("next_5d", "NEXT 5 DAYS from next open (tradeable)"),
     ]:
-        ic, ls = daily_ic(colname), daily_ls(colname)
-        net = ls - COST_ROUND_TRIP * 2  # long leg and short leg each pay a round trip
-        print(
-            f"  {label:22s} IC {ic.mean():+.3f} (t {t_stat(ic):+.2f}) | top-20% minus "
-            f"bottom-20%: {ls.mean():+.2%} per trade (t {t_stat(ls):+.2f}), "
-            f"after costs {net.mean():+.2%}"
-        )
+        print(f"\n  {label}")
+        for name, row in table.iterrows():
+            print(
+                f"    {name:13s} direction right {row[colname + '_acc']:.1%} "
+                f"(strongest 30%: {row[colname + '_acc_strong']:.1%}) | IC "
+                f"{row[colname + '_ic']:+.3f} (t {row[colname + '_ic_t']:+.2f}) | top-bottom "
+                f"{row[colname + '_ls']:+.2%} (t {row[colname + '_ls_t']:+.2f}), after costs "
+                f"{row[colname + '_ls_net']:+.2%}"
+            )
+    table.to_csv(OUT / "model_comparison.csv")
 
-    print("\n=== 3. Per ticker (next-day, tradeable) ===")
+    best = table["next_day_ic_t"].idxmax()
+    day = days[best]
+    print(f"\n=== 2. Per ticker with the best tradeable model ({best}) ===")
     recs = []
     for t in args.tickers:
         d = day[day["symbol"] == t]
@@ -158,7 +200,7 @@ def main() -> None:
             {
                 "ticker": t,
                 "news_days": len(d),
-                "direction_right": right.mean(),
+                "next_day_right": right.mean(),
                 "after_positive_news": posn["next_day"].mean() if len(posn) else np.nan,
                 "after_negative_news": negn["next_day"].mean() if len(negn) else np.nan,
                 "same_day_right": (np.sign(d["score"]) == np.sign(d["same_day"])).mean(),
@@ -168,16 +210,38 @@ def main() -> None:
     print(
         per.to_string(
             formatters={
-                "direction_right": "{:.0%}".format,
+                "next_day_right": "{:.0%}".format,
                 "after_positive_news": "{:+.2%}".format,
                 "after_negative_news": "{:+.2%}".format,
                 "same_day_right": "{:.0%}".format,
             }
         )
     )
-    day.to_csv(OUT / "daily_scores.csv", index=False)
+    day.to_csv(OUT / f"daily_scores_{best}.csv", index=False)
     per.to_csv(OUT / "per_ticker.csv")
-    print(f"\nCSV written to {OUT}/")
+
+    reg = Registry.load()
+    row = table.loc[best]
+    reg.record(
+        SignalRecord(
+            name="news_sentiment",
+            kind="direction",
+            description=f"news sentiment ({best}), next-day open-to-close, market-adjusted",
+            holdout_metric="next_day_ic",
+            holdout_value=float(row["next_day_ic"]),
+            holdout_t=float(row["next_day_ic_t"]),
+            tested_on="2025-01..2026-10 frozen",
+            notes=f"after-cost top-bottom {row['next_day_ls_net']:+.4f}/trade",
+        )
+    )
+    reg.save()
+    verdict = (
+        "PASSED: may rank picks"
+        if reg.signals["news_sentiment"].validated
+        else ("NOT validated: shown as context only")
+    )
+    print(f"\nregistry: news_sentiment ({best}) t={row['next_day_ic_t']:+.2f} -> {verdict}")
+    print(f"CSV written to {OUT}/")
 
 
 if __name__ == "__main__":
