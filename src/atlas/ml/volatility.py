@@ -103,6 +103,10 @@ def evaluate_vol(pred_log: pd.Series, data: pd.DataFrame) -> dict[str, float]:
         "mae_vol_points": float(vol_err.mean() * 100),
         "median_abs_pct_error": float((vol_err / np.exp(d["target"])).median()),
         "acc_above_median": float(above.mean()),
+        # months are the independent unit: t-stat of monthly accuracy against a coin flip
+        "acc_above_median_t": float(
+            (above.mean() - 0.5) / (above.std(ddof=1) / np.sqrt(len(above)))
+        ),
         "acc_above_median_min_month": float(above.min()),
         "acc_vol_up_or_down": float(rises.mean()),
         "top20_precision": float(top.mean()),

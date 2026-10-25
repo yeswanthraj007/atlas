@@ -96,6 +96,7 @@ def main() -> None:
         "acc_above_median_min_month": "{:.1%}",
         "acc_vol_up_or_down": "{:.1%}",
         "top20_precision": "{:.1%}",
+        "acc_above_median_t": "{:.1f}",
     }
     print(table.apply(lambda col: col.map(fmt[col.name].format)).to_string())
     print(
@@ -132,6 +133,28 @@ def main() -> None:
     if not out:
         raise SystemExit(f"none of {args.tickers} were in the test universe")
     pd.concat(out).to_csv(OUT / "per_stock.csv")
+    from atlas.recommend.engine import Registry, SignalRecord
+
+    reg = Registry.load()
+    b = rows[best]
+    naive = rows["naive (last month's vol)"]["acc_above_median"]
+    reg.record(
+        SignalRecord(
+            name="vol_forecast",
+            kind="risk",
+            description=f"next-month volatility forecast ({best})",
+            holdout_metric="acc_above_median",
+            holdout_value=b["acc_above_median"],
+            holdout_t=b["acc_above_median_t"],
+            tested_on=f"frozen after {train_end.date()}",
+            notes=f"naive baseline {naive:.3f}; vol up/down accuracy {b['acc_vol_up_or_down']:.3f}",
+        )
+    )
+    reg.save()
+    print(
+        f"registry: vol_forecast t={b['acc_above_median_t']:.1f} -> "
+        f"{'validated' if reg.signals['vol_forecast'].validated else 'NOT validated'}"
+    )
     table.to_csv(OUT / "accuracy.csv")
     print(f"\nCSV written to {OUT}/")
 

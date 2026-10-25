@@ -42,3 +42,33 @@ def test_validated_signal_ranks_and_registry_roundtrips(tmp_path) -> None:
         .signals.get("x", SignalRecord("x", "", "direction"))
         .holdout_t
     )
+
+
+def test_telegram_summary_and_send_with_mock() -> None:
+    import httpx
+
+    from atlas.notify.telegram import TelegramNotConfiguredError, send
+    from atlas.recommend.daily import DailyResult, telegram_summary
+
+    wl = build_watchlist(
+        date(2026, 10, 23),
+        SIGNALS,
+        VOL,
+        {"news_today": pd.Series({"BBB": 3.0})},
+        registry(news_t=1.0),
+    )
+    res = DailyResult(pd.Timestamp("2026-10-23"), "morning", wl, {}, None, None)
+    text = telegram_summary(res, "https://claude.ai/x")
+    assert "Picks: none" in text and "BBB  60% · 3 news today" in text and "not advice" in text
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        sent.append(req)
+        return httpx.Response(200, json={"ok": True})
+
+    send(text, "TOKEN", "42", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert sent and "botTOKEN/sendMessage" in str(sent[0].url)
+    import pytest
+
+    with pytest.raises(TelegramNotConfiguredError):
+        send("x", token="", chat_id="")

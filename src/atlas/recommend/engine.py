@@ -110,18 +110,25 @@ class Watchlist:
         return "\n".join(lines) + "\n"
 
 
+COLUMN_FORMATS = {"expected_vol": "{:.0%}", "return_1m": "{:+.1%}", "score": "{:+.2f}"}
+
+
 def _md_table(df: pd.DataFrame) -> str:
     cols = ["ticker", *df.columns]
     out = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for idx, row in df.iterrows():
-        cells = [str(idx)] + [_fmt(v) for v in row.to_numpy()]
+        cells = [str(idx)] + [_fmt(v, COLUMN_FORMATS.get(c)) for c, v in row.items()]
         out.append("| " + " | ".join(cells) + " |")
     return "\n".join(out)
 
 
-def _fmt(v: object) -> str:
-    if isinstance(v, float):
-        return "-" if not np.isfinite(v) else f"{v:.3g}"
+def _fmt(v: object, fmt: str | None = None) -> str:
+    if isinstance(v, (float, np.floating)):
+        if not np.isfinite(v):
+            return "-"
+        if fmt:
+            return fmt.format(v)
+        return f"{v:.0f}" if float(v).is_integer() else f"{v:.3g}"
     return str(v)
 
 
