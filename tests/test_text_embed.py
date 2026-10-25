@@ -18,4 +18,5 @@ def test_neural_head_learns_a_planted_direction_and_early_stops() -> None:
         x[:4000], rng.normal(size=4000), x[4000:5000], rng.normal(size=1000)
     )
     assert len(noise.history) < 40
-    assert abs(np.corrcoef(noise.score(x[5000:]), r[5000:])[0, 1]) < 0.15
+    # and it never beats a coin flip on validation (binary cross-entropy of ln 2 = 0.693)
+    assert min(v for _, v in noise.history) > 0.68
