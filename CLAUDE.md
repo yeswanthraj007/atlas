@@ -26,6 +26,11 @@ person. Read `docs/ARCHITECTURE.md` for the design and the roadmap.
 7. **Live trading is opt-in.** Paper trading is the default. Credentials live in `.env`
    (never committed) and are read from the environment only.
 
+8. **New signals go through the research lab** (`docs/RESEARCH_PROCESS.md`): write the
+   hypothesis and rationale first, run `uv run atlas research run <name>`, never edit a
+   candidate after its holdout opened, and never delete or rewrite `research/trials.jsonl`.
+   Only signals in the registry with passing frozen tests may rank picks.
+
 ## Layout
 
 `src/atlas/<module>` — refdata, ledger, marketdata, risk, pricing, optimizer, oms,

@@ -101,6 +101,73 @@ def cmd_universe(_: argparse.Namespace) -> int:
     return 0
 
 
+TEMPLATE = '''"""Candidate signal: {name}.
+
+Written BEFORE testing; never edited after its holdout opens (a change is a new trial).
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from atlas.lab.evaluate import CandidateSpec
+from atlas.research import ResearchData
+
+SPEC = CandidateSpec(
+    name="{name}",
+    hypothesis="TODO: what should happen, e.g. stocks with X outperform over the next month",
+    rationale="TODO: why it should work: who is on the other side of the trade, and why "
+    "they have not already removed the effect",
+    horizon_days=21,
+    author="{author}",
+)
+
+
+def compute(data: ResearchData) -> pd.DataFrame:
+    """Score per stock per date (dates x "EQ:<ticker>"), higher = more attractive.
+    Use only rows up to each date: the evaluator re-runs this on truncated data."""
+    raise NotImplementedError
+'''
+
+
+def cmd_research_new(args: argparse.Namespace) -> int:
+    path = Path("src/atlas/candidates") / f"{args.name}.py"
+    if path.exists():
+        print(f"{path} already exists", file=sys.stderr)
+        return 2
+    path.write_text(TEMPLATE.format(name=args.name, author=args.author))
+    print(f"created {path}: write the hypothesis and rationale first, then compute()")
+    return 0
+
+
+def cmd_research_run(args: argparse.Namespace) -> int:
+    from atlas.lab.evaluate import evaluate_candidate
+    from atlas.research import load_research_data
+
+    trial = evaluate_candidate(args.name, load_research_data(args.features))
+    print(f"trial #{trial.trial_id}: {trial.status}")
+    return 0 if trial.status == "promoted" else 1
+
+
+def cmd_research_log(_: argparse.Namespace) -> int:
+    from atlas.lab.trials import TrialLog
+
+    log = TrialLog()
+    trials = log.all()
+    if not trials:
+        print("no trials yet")
+        return 0
+    for t in trials:
+        m = t.metrics
+        print(
+            f"#{t.trial_id:<3} {t.created_at[:10]} {t.candidate:28s} {t.status:18s} "
+            f"dev t {m.get('dev_ic_t', float('nan')):+.2f}  holdout "
+            f"{'opened' if t.holdout_opened else 'sealed'}  by {t.author}"
+        )
+    print(f"{len(trials)} trials, holdout opened {log.holdout_views()} times")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="atlas")
     sub = p.add_subparsers(dest="group", required=True)
@@ -122,6 +189,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     data.add_parser("factors", help="download Fama-French factors").set_defaults(fn=cmd_factors)
     data.add_parser("universe", help="list tradable US equities").set_defaults(fn=cmd_universe)
+
+    research = sub.add_parser("research", help="signal research lab").add_subparsers(
+        dest="cmd", required=True
+    )
+    rn = research.add_parser("new", help="scaffold a candidate signal")
+    rn.add_argument("name")
+    rn.add_argument("--author", default="claude")
+    rn.set_defaults(fn=cmd_research_new)
+    rr = research.add_parser("run", help="evaluate a candidate through the gates")
+    rr.add_argument("name")
+    rr.add_argument("--features", default="extended")
+    rr.set_defaults(fn=cmd_research_run)
+    research.add_parser("log", help="show every trial").set_defaults(fn=cmd_research_log)
     return p
 
 
