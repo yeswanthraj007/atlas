@@ -36,6 +36,7 @@ class Adjustment(StrEnum):
     """
 
     RAW = "raw"
+    SPLIT = "split"  # split-adjusted only: share-count consistent (market caps)
     ALL = "all"
 
 

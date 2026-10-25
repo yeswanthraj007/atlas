@@ -163,3 +163,15 @@ def test_walk_forward_end_to_end_is_out_of_sample() -> None:
         lambda p: CrossSectionalMomentum(**p), grid[0], bars, sm, plan, cfg, warmup_days=250
     )
     assert hold_eq.index[0] == plan.holdout_start
+
+
+def test_alpha_beta_separates_skill_from_leverage() -> None:
+    from atlas.validation.stats import alpha_beta
+
+    mkt = RNG.normal(0.0005, 0.01, 3000)
+    levered = 1.5 * mkt + RNG.normal(0, 0.002, 3000)  # beats the market only via beta
+    ab = alpha_beta(levered, mkt)
+    assert ab["beta"] == pytest.approx(1.5, abs=0.02)
+    assert abs(ab["alpha_t"]) < 2.5
+    skilled = mkt + 0.0004 + RNG.normal(0, 0.002, 3000)  # ~10%/yr true alpha
+    assert alpha_beta(skilled, mkt)["alpha_t"] > 4

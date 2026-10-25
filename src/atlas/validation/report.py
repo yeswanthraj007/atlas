@@ -20,6 +20,7 @@ from atlas.validation.signal import (
     per_ticker_signal_scores,
     summarize_ic,
 )
+from atlas.validation.stats import alpha_beta
 from atlas.validation.walkforward import Params, WalkForwardResult
 
 # (params) -> (ts, eligible) -> score per instrument at ts, higher = more attractive
@@ -114,6 +115,11 @@ def print_report(
     print(
         f"excess return vs benchmark {excess.mean() * 252:.1%}/yr | tracking error {te:.1%} | "
         f"information ratio {info_ratio:.2f}"
+    )
+    ab = alpha_beta(wf.oos_returns.to_numpy(), bench_r.to_numpy())
+    print(
+        f"vs benchmark: beta {ab['beta']:.2f} | ALPHA {ab['alpha_ann']:+.1%}/yr "
+        f"(t {ab['alpha_t']:+.2f}) <- skill; |t| < 2 means no evidence of skill"
     )
     print(
         f"train Sharpe {summ['mean_train_sharpe']:.2f} -> test Sharpe "
@@ -213,4 +219,4 @@ def print_report(
         yt.to_csv(out_dir / "yearly.csv")
         rt.to_csv(out_dir / "regimes.csv")
         pd.DataFrame({"strategy": oos_eq, "benchmark": bench_eq}).to_csv(out_dir / "oos_equity.csv")
-    return {**summ, "information_ratio": info_ratio, "mean_ic": s.mean_ic, "ic_t": s.t_stat}
+    return {**summ, **ab, "information_ratio": info_ratio, "mean_ic": s.mean_ic, "ic_t": s.t_stat}

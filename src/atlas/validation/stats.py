@@ -61,3 +61,23 @@ def deflated_sharpe(
     else:
         var = 1.0 / r.size
     return probabilistic_sharpe(r, expected_max_sharpe(n_trials, var))
+
+
+def alpha_beta(
+    returns: NDArray[np.float64], benchmark: NDArray[np.float64], periods_per_year: int = 252
+) -> dict[str, float]:
+    """CAPM regression r = alpha + beta * b + e. Beating a benchmark with beta > 1 in a
+    rising market is leverage, not skill; only alpha (and its t-stat) measures skill."""
+    y = np.asarray(returns, dtype=np.float64)
+    x = np.asarray(benchmark, dtype=np.float64)
+    design = np.column_stack([np.ones_like(x), x])
+    coef, *_ = np.linalg.lstsq(design, y, rcond=None)
+    resid = y - design @ coef
+    sigma2 = float(resid @ resid) / max(len(y) - 2, 1)
+    se = np.sqrt(sigma2 * np.diag(np.linalg.inv(design.T @ design)))
+    return {
+        "alpha_ann": float(coef[0] * periods_per_year),
+        "alpha_t": float(coef[0] / se[0]) if se[0] else 0.0,
+        "beta": float(coef[1]),
+        "residual_vol_ann": float(np.sqrt(sigma2 * periods_per_year)),
+    }

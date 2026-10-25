@@ -49,7 +49,7 @@ def cmd_download(args: argparse.Namespace) -> int:
     end = _date(args.end) if args.end else datetime.now(UTC)
     tf = Timeframe(args.timeframe)
     adjustments = (
-        [Adjustment.ALL, Adjustment.RAW]
+        [Adjustment.ALL, Adjustment.RAW, Adjustment.SPLIT]
         if args.adjustment == "both"
         else [Adjustment(args.adjustment)]
     )
@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--start", default="2016-01-01")
     d.add_argument("--end")
     d.add_argument("--timeframe", default="1d", choices=[t.value for t in Timeframe])
-    d.add_argument("--adjustment", default="both", choices=["all", "raw", "both"])
+    d.add_argument("--adjustment", default="both", choices=["all", "raw", "split", "both"])
     d.set_defaults(fn=cmd_download)
 
     c = data.add_parser("check", help="run quality checks on stored bars")
