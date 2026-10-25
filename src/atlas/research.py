@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from atlas.factors.earnings import earnings_factor_frames, volume_factor_frames
 from atlas.factors.fundamental import FUNDAMENTAL_FACTORS, fundamental_factor_frames
 from atlas.factors.panel import price_factor_frames
 from atlas.marketdata.bars import Adjustment
@@ -37,7 +38,8 @@ class ResearchData:
 
 
 def load_research_data(features: str = "all", data_dir: str = "data") -> ResearchData:
-    """features: "price", "fundamental" or "all"."""
+    """features: "price", "fundamental", "all", or "extended" (all + earnings-event and
+    volume features)."""
     store = BarStore(data_dir)
     sm = SecurityMaster()
     symbols = Path(UNIVERSE).read_text().split()
@@ -61,13 +63,18 @@ def load_research_data(features: str = "all", data_dir: str = "data") -> Researc
 
     split = panel(Adjustment.SPLIT)
     factors: dict[str, pd.DataFrame] = {}
-    if features in ("price", "all"):
+    if features in ("price", "all", "extended"):
         factors.update(price_factor_frames(closes))
-    if features in ("fundamental", "all"):
+    if features in ("fundamental", "all", "extended"):
         fund = fundamental_factor_frames(
             items_for(load_facts(), present), split, panel(Adjustment.RAW)
         )
         factors.update({k: fund[k] for k in FUNDAMENTAL_FACTORS if k in fund})
+    if features == "extended":
+        earn = earnings_factor_frames(items_for(load_facts(), present), closes.index)
+        factors.update({k: earn[k] for k in ("earnings_surprise", "surprise_freshness")})
+        volumes = pd.DataFrame({k: v["volume"] for k, v in bars.items()}).reindex(closes.index)
+        factors.update(volume_factor_frames(closes, volumes))
     return ResearchData(
         bars, sm, closes, split, members, store.read("SPY")["close"], sectors, factors
     )

@@ -46,13 +46,15 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--train-end", default="2024-12-31")
     ap.add_argument("--calib-start", default="2023-01-01")
+    ap.add_argument("--features", default="all", choices=["price", "all", "extended"])
     ap.add_argument("--tickers", nargs="*", default=["AAPL", "NVDA", "TSLA", "COST", "JPM", "XOM"])
     args = ap.parse_args()
     train_end = pd.Timestamp(args.train_end, tz="UTC")
     calib_start = pd.Timestamp(args.calib_start, tz="UTC")
     OUT.mkdir(parents=True, exist_ok=True)
+    print(f"feature set: {args.features}")
 
-    rd = load_research_data("all")
+    rd = load_research_data(args.features)
     closes, split = rd.closes, rd.split_closes
     idx = closes.index
     train_grid = idx[(idx >= idx[0] + pd.Timedelta(days=380)) & (idx <= train_end)][::HORIZON]
