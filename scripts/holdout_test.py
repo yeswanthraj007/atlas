@@ -16,6 +16,7 @@ Steps
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +50,7 @@ def main() -> None:
     ap.add_argument("--features", default="all", choices=["price", "all", "extended"])
     ap.add_argument("--tickers", nargs="*", default=["AAPL", "NVDA", "TSLA", "COST", "JPM", "XOM"])
     args = ap.parse_args()
+    args.tickers = [t.upper() for x in args.tickers for t in re.split(r"[\s,]+", x) if t]
     train_end = pd.Timestamp(args.train_end, tz="UTC")
     calib_start = pd.Timestamp(args.calib_start, tz="UTC")
     OUT.mkdir(parents=True, exist_ok=True)
@@ -209,6 +211,8 @@ def main() -> None:
             show[c] = show[c].map("${:,.2f}".format)
         print(show.rename(columns={"model_pct": "model rank"}).to_string(index=False))
 
+    if not all_rows:
+        raise SystemExit(f"none of {args.tickers} were in the test universe")
     pd.concat(all_rows).to_csv(OUT / "price_predictions.csv", index=False)
     pd.DataFrame(
         {

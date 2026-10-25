@@ -6,6 +6,7 @@ uv run python scripts/holdout_vol.py --tickers AAPL NVDA TSLA COST JPM XOM
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,7 @@ def main() -> None:
     ap.add_argument("--train-end", default="2024-12-31")
     ap.add_argument("--tickers", nargs="*", default=["AAPL", "NVDA", "TSLA", "COST", "JPM", "XOM"])
     args = ap.parse_args()
+    args.tickers = [t.upper() for x in args.tickers for t in re.split(r"[\s,]+", x) if t]
     train_end = pd.Timestamp(args.train_end, tz="UTC")
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -127,6 +129,8 @@ def main() -> None:
             f"actual vol range {df['actual'].min():.0%}-{df['actual'].max():.0%}"
         )
         out.append(df.assign(ticker=tkr))
+    if not out:
+        raise SystemExit(f"none of {args.tickers} were in the test universe")
     pd.concat(out).to_csv(OUT / "per_stock.csv")
     table.to_csv(OUT / "accuracy.csv")
     print(f"\nCSV written to {OUT}/")
