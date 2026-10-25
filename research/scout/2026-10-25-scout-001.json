@@ -1,0 +1,207 @@
+{
+  "report_id": "2026-10-25-scout-001",
+  "created_at": "2026-10-25T23:00:00+00:00",
+  "data_through": "2026-10-23",
+  "author": "claude",
+  "themes": [
+    {
+      "name": "Grid build-out for AI power demand",
+      "sectors": [
+        "Utilities",
+        "Industrials"
+      ],
+      "thesis": "Utilities are winning large transmission awards (Ameren's $1.23B MISO project) while AI data-centre load outruns the grid. Spending flows to the contractors those utilities name as suppliers.",
+      "evidence": [
+        "Ameren Consortium Selected by MISO for $1.23 Billion Iowa Transmission Project",
+        "Bloom Energy CEO Says America's Power Grid Can't Keep up With AI Boom",
+        "PWR 10-K names AEE, AEP, PCG as customers"
+      ],
+      "calls": [
+        {
+          "ticker": "PWR",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "supplier link: names AEE/AEP/PCG as customers; transmission capex awards flow to the contractor",
+          "link_type": "customer",
+          "confidence": 3
+        },
+        {
+          "ticker": "AEE",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "event: $1.23B transmission award grows the regulated rate base",
+          "link_type": "event",
+          "confidence": 2
+        },
+        {
+          "ticker": "ETN",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "sector: electrical equipment demand from grid and data-centre build-out",
+          "link_type": "sector",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "Satellite-to-cell deal re-rates tower sites",
+      "sectors": [
+        "Real Estate",
+        "Communication Services"
+      ],
+      "thesis": "SpaceX reportedly targeting 80,000 cell sites lifted Crown Castle 27% in a month; its filed competitors American Tower and SBA own comparable site portfolios but have not moved as much.",
+      "evidence": [
+        "Crown Castle Stock Jumps as SpaceX Targets 80,000 Sites",
+        "AT&T Stock Tumbles as SpaceX Eyes 80,000 Cell Sites",
+        "CCI 10-K names AMT and SBAC as competitors"
+      ],
+      "calls": [
+        {
+          "ticker": "AMT",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: competitor of CCI with similar assets; catch-up to a re-rated peer",
+          "link_type": "peer",
+          "confidence": 2
+        },
+        {
+          "ticker": "SBAC",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: competitor of CCI with similar assets; catch-up to a re-rated peer",
+          "link_type": "peer",
+          "confidence": 2
+        },
+        {
+          "ticker": "T",
+          "direction": "underperform",
+          "horizon_days": 63,
+          "mechanism": "event: a satellite operator buying sites signals new competition for carriers",
+          "link_type": "event",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "Custom AI inference silicon",
+      "sectors": [
+        "Information Technology"
+      ],
+      "thesis": "Amazon says inference is still about 10x too expensive and points to its own chips; hyperscalers designing custom accelerators buy from the custom-silicon supplier named by NVIDIA and Arista.",
+      "evidence": [
+        "Amazon CEO Andy Jassy Says AI Inference Is Still 10 Times Too Expensive, Claims Amazon Chips Offer Answer",
+        "AVGO named as supplier by NVDA, ANET in their 10-Ks"
+      ],
+      "calls": [
+        {
+          "ticker": "AVGO",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "supplier link: custom accelerator and networking supplier to hyperscalers and AI hardware makers",
+          "link_type": "supplier",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "Refining margins and freight costs",
+      "sectors": [
+        "Energy"
+      ],
+      "thesis": "Valero is up 38% in three months as refining margins widen; peer refiners with the same exposure have not been re-rated as far.",
+      "evidence": [
+        "Valero Energy Executive Discusses Impact of Surging Freight Rates on Supply Strategy",
+        "Barclays Maintains Buy Rating and Raises Price Target for Valero Energy"
+      ],
+      "calls": [
+        {
+          "ticker": "MPC",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: same refining-margin exposure as VLO; catch-up",
+          "link_type": "peer",
+          "confidence": 2
+        },
+        {
+          "ticker": "PSX",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: same refining-margin exposure as VLO; catch-up",
+          "link_type": "peer",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "Defense procurement momentum",
+      "sectors": [
+        "Industrials"
+      ],
+      "thesis": "Lockheed is up 15% in a month on F-35 procurement advocacy and rising targets; other prime contractors share the budget exposure.",
+      "evidence": [
+        "IAM Union Advocates for 10-Year F-35 Procurement Contract",
+        "Citigroup Maintains Buy on Lockheed Martin, Raises Price Target to $706"
+      ],
+      "calls": [
+        {
+          "ticker": "NOC",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: prime defense contractor sharing the procurement budget cycle",
+          "link_type": "peer",
+          "confidence": 2
+        },
+        {
+          "ticker": "GD",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "peer link: prime defense contractor sharing the procurement budget cycle",
+          "link_type": "peer",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "EV supply-chain retrenchment",
+      "sectors": [
+        "Materials",
+        "Consumer Discretionary"
+      ],
+      "thesis": "GM is closing a battery assembly plant and ending a rare-earth magnet supply deal, signalling lower EV component demand upstream.",
+      "evidence": [
+        "General Motors to Close Brownstown Battery Assembly Plant",
+        "General Motors Terminates Rare-Earth Magnet Supply Agreement with e-VAC Magnetics"
+      ],
+      "calls": [
+        {
+          "ticker": "ALB",
+          "direction": "underperform",
+          "horizon_days": 63,
+          "mechanism": "customer link (sector): lithium demand depends on EV battery build rates",
+          "link_type": "sector",
+          "confidence": 2
+        }
+      ]
+    },
+    {
+      "name": "Drug approvals broaden franchises",
+      "sectors": [
+        "Health Care"
+      ],
+      "thesis": "AbbVie won FDA approval for a subcutaneous Skyrizi induction regimen in Crohn's, easing use of its main growth drug.",
+      "evidence": [
+        "FDA Approves Subcutaneous Induction Regimen for AbbVie's SKYRIZI for Crohn's Disease"
+      ],
+      "calls": [
+        {
+          "ticker": "ABBV",
+          "direction": "outperform",
+          "horizon_days": 63,
+          "mechanism": "event: regulatory approval expands the addressable use of the main growth franchise",
+          "link_type": "event",
+          "confidence": 2
+        }
+      ]
+    }
+  ]
+}
