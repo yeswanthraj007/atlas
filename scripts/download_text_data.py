@@ -33,12 +33,20 @@ def main() -> None:
                 since="2014-01-01",
                 workers=6,
             )
+        elif job == "earnings":
+            from atlas.marketdata.earnings_releases import EarningsReleaseDownloader
+            from atlas.marketdata.filings import FilingClient
+            from atlas.marketdata.sec import symbols_to_ciks
+
+            EarningsReleaseDownloader(FilingClient(os.environ["SEC_USER_AGENT"])).download(
+                symbols_to_ciks("data/universes/sp500_constituents.csv"), since="2014-01-01"
+            )
         elif job == "news":
             from atlas.marketdata.news import NewsDownloader
 
             NewsDownloader().download(symbols, datetime(2016, 1, 1, tzinfo=UTC), datetime.now(UTC))
         else:
-            raise SystemExit("usage: download_text_data.py filings|news")
+            raise SystemExit("usage: download_text_data.py filings|earnings|news")
     print(f"{job} done in {time.time() - t0:.0f}s", flush=True)
 
 
