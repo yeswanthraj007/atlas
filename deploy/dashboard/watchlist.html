@@ -1,0 +1,195 @@
+<title>Atlas Watchlist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a single-column desk briefing sheet. Status strip, then ranked tables, then the
+   signal ledger that explains what was allowed to rank. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #141a24;
+  --muted: #5d6676;
+  --line: #dde1e8;
+  --accent: #1f5f8b;
+  --accent-soft: #e3eef6;
+  --good: #1d7a4e;
+  --good-soft: #e1f2e9;
+  --warn: #9a6400;
+  --warn-soft: #f8edd6;
+  --bad: #b3372b;
+  --bar: #c9dcea;
+  --font-body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #161d27; --ink: #e6ebf2; --muted: #93a0b3; --line: #263142;
+    --accent: #7fb6dd; --accent-soft: #1b2b3b; --good: #5cc592; --good-soft: #15291f;
+    --warn: #e0b257; --warn-soft: #2c2412; --bad: #ef7f73; --bar: #24435c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d27; --ink: #e6ebf2; --muted: #93a0b3; --line: #263142;
+  --accent: #7fb6dd; --accent-soft: #1b2b3b; --good: #5cc592; --good-soft: #15291f;
+  --warn: #e0b257; --warn-soft: #2c2412; --bad: #ef7f73; --bar: #24435c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body);
+  font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 20px 40px;
+}
+main { max-width: 880px; margin: 0 auto; display: grid; gap: 22px; }
+header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; justify-content: space-between; }
+h1 { font-size: 26px; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; }
+.meta b { color: var(--ink); font-weight: 600; }
+select {
+  font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.strip {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; display: grid; gap: 6px;
+}
+.strip p { margin: 0; max-width: 68ch; }
+.pill {
+  display: inline-block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+.pill.ok { background: var(--good-soft); color: var(--good); }
+.pill.no { background: var(--warn-soft); color: var(--warn); }
+section { min-width: 0; }
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+td.tkr { font-family: var(--font-data); font-weight: 600; }
+.neg { color: var(--bad); }
+.volcell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.volbar { height: 6px; border-radius: 3px; background: var(--bar); flex: 0 0 auto; }
+details { border-top: 1px solid var(--line); }
+details:first-of-type { border-top: 0; }
+summary { cursor: pointer; padding: 10px 12px; font-weight: 600; font-family: var(--font-data); }
+details ul { margin: 0; padding: 0 12px 12px 28px; color: var(--muted); font-size: 14px; }
+details li { margin-bottom: 4px; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.empty { color: var(--muted); padding: 14px 16px; margin: 0; }
+footer { color: var(--muted); font-size: 12.5px; max-width: 70ch; }
+@media (prefers-reduced-motion: no-preference) { .volbar { transition: width 0.4s ease; } }
+</style>
+
+<main>
+  <header>
+    <div>
+      <h1>Atlas Watchlist</h1>
+      <div class="meta" id="meta">Waiting for the first report from the daily job.</div>
+    </div>
+    <label class="meta" for="pick">Report
+      <select id="pick" aria-label="Choose a report"><option>Loading…</option></select>
+    </label>
+  </header>
+
+  <div class="strip" id="status">
+    <p><b>Nothing here yet.</b> Each weekday the daily job writes a pre-open watchlist (8:30 ET) and an after-close recap (17:00 ET). They appear here as soon as they are saved.</p>
+  </div>
+
+  <section>
+    <h2>Stocks to look at</h2>
+    <div class="table-wrap" id="picks"><p class="empty">Ranked only by signals that passed their frozen 2025–2026 test.</p></div>
+  </section>
+
+  <section>
+    <h2>Biggest expected moves · next month, annualised volatility</h2>
+    <div class="table-wrap" id="risk"><p class="empty">The volatility forecast fills this list.</p></div>
+  </section>
+
+  <section>
+    <h2>Headlines behind the list</h2>
+    <div class="box" id="heads"><p class="empty">Headlines for the listed stocks appear here.</p></div>
+  </section>
+
+  <section>
+    <h2>Signal ledger</h2>
+    <div class="table-wrap" id="ledger"><p class="empty">Every signal's frozen-test result, and whether it may rank stocks.</p></div>
+  </section>
+
+  <footer>Research watchlist, not investment advice. A signal ranks stocks only after it beats chance on data it never saw (t ≥ 2 on the frozen 2025–2026 test). Orders still pass the order system's risk checks.</footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pct = (v, sign) => v == null ? "–" : (sign && v > 0 ? "+" : "") + (v * 100).toFixed(Math.abs(v) < 1 && sign ? 1 : 0) + "%";
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let reports = [];
+
+function render(r) {
+  if (!r) return;
+  const when = r.session === "morning" ? "Pre-open watchlist" : "After-close recap";
+  const day = new Date(r.as_of + "T12:00:00Z").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  $("meta").innerHTML = `<b>${when}</b> · data to the close of ${esc(day)} · built ${esc((r.generated_at || "").replace("T", " ").replace("+00:00", " UTC"))}`;
+
+  const used = r.ranking_signals || [];
+  $("status").innerHTML = used.length
+    ? `<p><span class="pill ok">Ranking</span> Picks are ranked by: <b>${used.map(esc).join(", ")}</b>.</p>`
+    : `<p><span class="pill no">No picks</span> No direction signal has passed its frozen test yet, so nothing is ranked as a pick. The expected-moves list below is validated and shown in full.</p>`;
+
+  const picks = r.picks || [];
+  $("picks").innerHTML = picks.length
+    ? `<table><thead><tr><th>Ticker</th><th class="num">Score</th><th class="num">News today</th><th class="num">1-month return</th></tr></thead><tbody>${
+        picks.map((p) => `<tr><td class="tkr">${esc(p.ticker)}</td><td class="num">${(p.score ?? 0).toFixed(2)}</td><td class="num">${p.news_today ?? "–"}</td><td class="num ${p.return_1m < 0 ? "neg" : ""}">${pct(p.return_1m, true)}</td></tr>`).join("")
+      }</tbody></table>`
+    : `<p class="empty">No picks today. A list appears here once a direction signal passes its test.</p>`;
+
+  const risk = r.risk || [];
+  const max = Math.max(...risk.map((x) => x.expected_vol || 0), 0.01);
+  $("risk").innerHTML = risk.length
+    ? `<table><thead><tr><th>Ticker</th><th class="num">Expected vol</th><th class="num">News today</th><th class="num">Days since report</th><th class="num">1-month return</th></tr></thead><tbody>${
+        risk.map((x) => `<tr><td class="tkr">${esc(x.ticker)}</td><td class="num"><span class="volcell"><span class="volbar" style="width:${Math.round(60 * (x.expected_vol || 0) / max)}px"></span>${pct(x.expected_vol)}</span></td><td class="num">${x.news_today ?? "–"}</td><td class="num">${x.days_since_report ?? "–"}</td><td class="num ${x.return_1m < 0 ? "neg" : ""}">${pct(x.return_1m, true)}</td></tr>`).join("")
+      }</tbody></table>`
+    : `<p class="empty">No forecast in this report.</p>`;
+
+  const heads = r.headlines || {};
+  const keys = Object.keys(heads).filter((k) => (heads[k] || []).length);
+  $("heads").innerHTML = keys.length
+    ? keys.map((k) => `<details><summary>${esc(k)}</summary><ul>${heads[k].map((h) => `<li>${esc(h)}</li>`).join("")}</ul></details>`).join("")
+    : `<p class="empty">No headlines for the listed stocks since the last report.</p>`;
+
+  const reg = r.registry || {};
+  const names = Object.keys(reg);
+  $("ledger").innerHTML = names.length
+    ? `<table><thead><tr><th>Signal</th><th>Test metric</th><th class="num">Result</th><th class="num">t-stat</th><th>Status</th></tr></thead><tbody>${
+        names.map((n) => { const s = reg[n]; const v = s.value == null ? "–" : (s.value < 1.5 ? (s.value * 100).toFixed(1) + "%" : s.value.toFixed(3));
+          return `<tr><td class="tkr">${esc(n)}</td><td>${esc(s.metric || "")}</td><td class="num">${v}</td><td class="num">${s.t == null ? "–" : s.t.toFixed(1)}</td><td>${s.validated ? '<span class="pill ok">May rank</span>' : '<span class="pill no">Context only</span>'}</td></tr>`; }).join("")
+      }</tbody></table>`
+    : `<p class="empty">No signals recorded yet.</p>`;
+}
+
+function fillPicker() {
+  const sel = $("pick");
+  if (!reports.length) { sel.innerHTML = "<option>No reports yet</option>"; return; }
+  const cur = sel.value;
+  sel.innerHTML = reports.map((r) => `<option value="${esc(r.id)}">${esc(r.as_of)} · ${r.session === "morning" ? "pre-open" : "after close"}</option>`).join("");
+  if (reports.some((r) => r.id === cur)) sel.value = cur;
+}
+
+$("pick").addEventListener("change", (e) => render(reports.find((r) => r.id === e.target.value)));
+
+(async () => {
+  const db = await window.claude?.use?.("db");
+  if (!db) { $("meta").textContent = "Reports are stored with this page. Open it on claude.ai to see them."; return; }
+  db.collection("watchlists").orderBy("generated_at", "desc").limit(30).onSnapshot((snap) => {
+    const following = $("pick").value === (reports[0] && reports[0].id);
+    reports = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() }));
+    fillPicker();
+    const shown = reports.find((r) => r.id === $("pick").value);
+    render(following || !shown ? reports[0] : shown);
+    if (following && reports[0]) $("pick").value = reports[0].id;
+  }, (err) => { $("meta").textContent = "Could not load reports (" + err.code + "). Reload the page to try again."; });
+})();
+</script>
