@@ -20,6 +20,21 @@ import pandas as pd
 from atlas.marketdata.filings import SUBMISSIONS_URL, FilingClient, html_to_text
 
 ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nodash}/{acc}.txt"
+INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nodash}/{acc}-index.htm"
+SEC_HOST = "https://www.sec.gov"
+_INDEX_ROW = re.compile(r'<a href="([^"]+)">[^<]+</a></td>\s*<td[^>]*>([^<]*)</td>', re.I)
+
+
+def exhibit_url(index_html: str) -> str | None:
+    """URL of the press-release exhibit (EX-99.1 preferred) from a filing index page."""
+    rows = [(href, kind.strip().upper()) for href, kind in _INDEX_ROW.findall(index_html)]
+    for wanted in ("EX-99.1", "EX-99"):
+        for href, kind in rows:
+            if kind.startswith(wanted) and href.lower().endswith((".htm", ".html", ".txt")):
+                return href if href.startswith("http") else SEC_HOST + href
+    return None
+
+
 _DOC = re.compile(r"<DOCUMENT>\s*<TYPE>([^\n<]+)\n(.*?)</DOCUMENT>", re.S | re.I)
 
 
@@ -86,12 +101,18 @@ class EarningsReleaseDownloader:
         if path.exists():
             return None
         try:
-            raw = self.client._get(
-                ARCHIVE_URL.format(
-                    cik=rel.cik, acc_nodash=rel.accession.replace("-", ""), acc=rel.accession
-                )
-            )
-            text = extract_press_release(raw.decode("utf-8", errors="ignore"))
+            parts = {
+                "cik": rel.cik,
+                "acc_nodash": rel.accession.replace("-", ""),
+                "acc": rel.accession,
+            }
+            index_html = self.client._get(INDEX_URL.format(**parts)).decode("utf-8", "ignore")
+            url = exhibit_url(index_html)
+            if url is not None:  # small: just the exhibit
+                text = html_to_text(self.client._get(url).decode("utf-8", errors="ignore"))
+            else:  # fall back to the full submission file
+                raw = self.client._get(ARCHIVE_URL.format(**parts))
+                text = extract_press_release(raw.decode("utf-8", errors="ignore"))
             if len(text) < 200:
                 return "no press release text found"
             path.parent.mkdir(parents=True, exist_ok=True)
