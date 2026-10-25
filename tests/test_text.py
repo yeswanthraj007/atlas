@@ -78,3 +78,55 @@ def test_signal_is_point_in_time(tmp_path) -> None:
     frame = text_factor_frames(sims, dates)["text_sim_cosine"]["EQ:A"]
     assert np.isnan(frame["2024-02-01"])  # accepted that evening: not usable that day
     assert frame["2024-02-02"] == pytest.approx(sims["text_sim_cosine"].iloc[0])
+
+
+def test_downloader_end_to_end_with_shared_filings(tmp_path) -> None:
+    """Two share classes point at the same CIK: each filing is fetched once, and a broken
+    document is reported instead of stopping the run."""
+    import json
+
+    import httpx
+
+    from atlas.marketdata.filings import FilingClient, load_index, read_text
+
+    subs = {
+        "cik": "7",
+        "filings": {
+            "recent": {
+                "form": ["10-K", "10-K", "8-K"],
+                "accessionNumber": ["0001-24-1", "0001-23-1", "0001-24-9"],
+                "filingDate": ["2024-02-01", "2023-02-01", "2024-03-01"],
+                "acceptanceDateTime": ["2024-02-01T21:00:00.000Z"] * 3,
+                "reportDate": ["2023-12-31", "2022-12-31", ""],
+                "primaryDocument": ["a.htm", "broken.htm", "c.htm"],
+            }
+        },
+    }
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if "submissions" in request.url.path:
+            return httpx.Response(200, content=json.dumps(subs).encode())
+        if "broken" in request.url.path:
+            return httpx.Response(404)
+        return httpx.Response(200, content=b"<p>Annual report text</p>")
+
+    client = FilingClient(
+        "Test test@example.com",
+        tmp_path,
+        min_interval=0,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    index = client.download(
+        {"GOOG": 7, "GOOGL": 7},
+        forms=("10-K",),
+        since="2014-01-01",
+        workers=4,
+        progress=lambda _: None,
+    )
+    assert sum("a.htm" in c for c in calls) == 1  # fetched once despite two symbols
+    assert set(index["symbol"]) == {"GOOG", "GOOGL"}
+    assert set(index["accession"]) == {"0001-24-1"}  # the 404 is skipped, not fatal
+    assert "Annual report text" in read_text(tmp_path, 7, "0001-24-1")
+    assert len(load_index(tmp_path)) == 2

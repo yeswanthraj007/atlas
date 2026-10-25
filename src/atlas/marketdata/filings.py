@@ -151,6 +151,13 @@ class FilingClient:
         tmp.replace(path)
         return path
 
+    def _safe_fetch(self, f: Filing) -> str | None:
+        try:
+            self.fetch_text(f)
+            return None
+        except Exception as exc:  # one bad document must not stop the run
+            return str(exc)[:80]
+
     def download(
         self,
         ciks: dict[str, int],
