@@ -145,7 +145,7 @@ class FilingClient:
             return path
         raw = self._get(f.url).decode("utf-8", errors="ignore")
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.{threading.get_ident()}.tmp")
         with gzip.open(tmp, "wt", encoding="utf-8") as fh:
             fh.write(html_to_text(raw))
         tmp.replace(path)
@@ -168,17 +168,20 @@ class FilingClient:
             if i % 100 == 0:
                 progress(f"  indexed {i}/{len(ciks)} companies, {len(filings)} filings")
         rows = []
+        unique = {f.accession: f for f in filings}  # share classes can share one filing
+        done: set[str] = set()
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self.fetch_text, f): f for f in filings}
+            futures = {pool.submit(self._safe_fetch, f): f for f in unique.values()}
             for n, fut in enumerate(as_completed(futures), 1):
                 f = futures[fut]
-                try:
-                    fut.result()
-                    rows.append(f.__dict__)
-                except Exception as exc:  # keep going; report failures at the end
-                    failed.append((f.symbol, f.accession, str(exc)[:60]))
+                err = fut.result()
+                if err is None:
+                    done.add(f.accession)
+                else:
+                    failed.append((f.symbol, f.accession, err))
                 if n % 500 == 0:
                     progress(f"  downloaded {n}/{len(filings)}")
+        rows = [f.__dict__ for f in filings if f.accession in done]
         index = pd.DataFrame(rows).sort_values(["symbol", "filed"])
         index.to_parquet(self.root / "filings_index.parquet")
         progress(f"done: {len(index)} filings, {len(failed)} failures {failed[:5]}")
