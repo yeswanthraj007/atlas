@@ -86,14 +86,15 @@ def summarize_ic(ic: pd.Series) -> ICSummary:
 
 
 def per_ticker_signal_scores(
-    signals: pd.DataFrame, fwd: pd.DataFrame, top_n: int, min_obs: int = 6
+    signals: pd.DataFrame, fwd: pd.DataFrame, top_n: int | pd.Series, min_obs: int = 6
 ) -> pd.DataFrame:
     """How the signal did *for each ticker*.
 
     * rank_ic: over time, does a higher cross-sectional rank for this stock come before a
       higher relative return? (Spearman of its signal percentile vs return percentile.)
     * times_selected / hit_rate_when_selected: when the stock made the top `top_n`, how
-      often it then beat the median stock.
+      often it then beat the median stock. `top_n` may vary by date (a Series indexed by
+      date), e.g. when walk-forward folds chose different portfolio sizes.
     * avg_excess_when_selected: its average return minus the median, when selected.
     """
     dates = signals.index.intersection(fwd.index)
@@ -101,7 +102,8 @@ def per_ticker_signal_scores(
     fwd_d = fwd.loc[dates]
     fwd_pct = fwd_d.rank(axis=1, pct=True)
     excess = fwd_d.sub(fwd_d.median(axis=1), axis=0)
-    selected = signals.loc[dates].rank(axis=1, ascending=False) <= top_n
+    limit = top_n.reindex(dates) if isinstance(top_n, pd.Series) else pd.Series(top_n, dates)
+    selected = signals.loc[dates].rank(axis=1, ascending=False).le(limit, axis=0)
     rows = []
     for tkr in signals.columns:
         both = pd.concat([sig_pct[tkr], fwd_pct.get(tkr)], axis=1, keys=["s", "f"]).dropna()
