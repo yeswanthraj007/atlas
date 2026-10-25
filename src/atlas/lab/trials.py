@@ -74,3 +74,43 @@ class TrialLog:
 
     def holdout_views(self) -> int:
         return sum(t.holdout_opened for t in self.all())
+
+
+def log_external_trial(
+    candidate: str,
+    status: str,
+    hypothesis: str,
+    rationale: str,
+    metrics: dict[str, Any],
+    holdout_opened: bool,
+    script: str,
+    notes: str = "",
+    log: TrialLog | None = None,
+) -> Trial:
+    """Record a trial run by a dedicated script (signals that train their own model)."""
+    import hashlib
+    import subprocess
+
+    log = log or TrialLog()
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except Exception:
+        commit = "unknown"
+    sha = hashlib.sha256(Path(script).read_bytes()).hexdigest() if Path(script).exists() else ""
+    return log.append(
+        Trial(
+            trial_id=log.next_id(),
+            candidate=candidate,
+            author="claude",
+            hypothesis=hypothesis,
+            rationale=rationale,
+            code_sha256=sha,
+            git_commit=commit,
+            status=status,
+            metrics=metrics,
+            holdout_opened=holdout_opened,
+            notes=notes,
+        )
+    )
