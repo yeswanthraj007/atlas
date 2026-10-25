@@ -141,10 +141,11 @@ def cmd_research_new(args: argparse.Namespace) -> int:
 
 
 def cmd_research_run(args: argparse.Namespace) -> int:
-    from atlas.lab.evaluate import evaluate_candidate
+    from atlas.lab.evaluate import Periods, evaluate_candidate
     from atlas.research import load_research_data
 
-    trial = evaluate_candidate(args.name, load_research_data(args.features))
+    periods = Periods(dev_end=args.dev_end, holdout_start=args.holdout_start)
+    trial = evaluate_candidate(args.name, load_research_data(args.features), periods=periods)
     print(f"trial #{trial.trial_id}: {trial.status}")
     return 0 if trial.status == "promoted" else 1
 
@@ -200,6 +201,8 @@ def build_parser() -> argparse.ArgumentParser:
     rr = research.add_parser("run", help="evaluate a candidate through the gates")
     rr.add_argument("name")
     rr.add_argument("--features", default="extended")
+    rr.add_argument("--dev-end", default="2024-12-31")
+    rr.add_argument("--holdout-start", default="2025-01-01")
     rr.set_defaults(fn=cmd_research_run)
     research.add_parser("log", help="show every trial").set_defaults(fn=cmd_research_log)
     return p
