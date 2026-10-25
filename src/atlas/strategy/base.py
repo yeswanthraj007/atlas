@@ -32,6 +32,16 @@ class StrategyContext:
     nav: Decimal
     multiplier: Callable[[str], Decimal]
     bar_index: int
+    # Instruments the strategy may open positions in today (point-in-time index
+    # membership). None means every instrument with data is eligible.
+    eligible: frozenset[str] | None = None
+
+    def tradable_history(self) -> pd.DataFrame:
+        """Price history restricted to today's eligible instruments. Prices before a
+        stock joined the universe were public, so its full history stays available."""
+        if self.eligible is None:
+            return self.history
+        return self.history[[c for c in self.history.columns if c in self.eligible]]
 
 
 class Strategy(Protocol):

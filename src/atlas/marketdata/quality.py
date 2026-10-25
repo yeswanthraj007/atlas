@@ -37,6 +37,27 @@ class QualityConfig:
     stale_run: int = 5  # identical closes on this many consecutive bars
     max_gap_days: int = 5  # calendar days between daily bars before we call it a gap
     min_rows: int = 20
+    synthetic_run: int = 5  # zero-volume bars with a frozen close: the vendor filled a gap
+
+
+def synthetic_fill_mask(df: pd.DataFrame, run: int = 5) -> pd.Series:
+    """True on bars inside a run of >= `run` zero-volume bars with an unchanged close.
+
+    Vendors forward-fill when a ticker is dormant, e.g. when a symbol is reused by a new
+    company after a merger. Those bars are not trades, and they have zero volatility.
+    """
+    filled = (df["volume"] == 0) & (df["close"].diff() == 0)
+    groups = (~filled).cumsum()
+    lengths = filled.groupby(groups).transform("sum")
+    return filled & (lengths >= run)
+
+
+def trim_synthetic_history(df: pd.DataFrame, run: int = 5) -> pd.DataFrame:
+    """Keep only the bars after the last synthetic-fill run (the current listing)."""
+    mask = synthetic_fill_mask(df, run)
+    if not mask.any():
+        return df
+    return df.loc[df.index > mask[mask].index[-1]]
 
 
 def _issue(symbol: str, check: str, sev: Severity, mask: pd.Series, detail: str) -> Issue | None:
@@ -113,6 +134,15 @@ def check_bars(
             Severity.WARN,
             run >= cfg.stale_run,
             f"close unchanged for {cfg.stale_run}+ bars",
+        )
+    )
+    out.append(
+        _issue(
+            symbol,
+            "synthetic_fill",
+            Severity.ERROR,
+            synthetic_fill_mask(df, cfg.synthetic_run),
+            f"{cfg.synthetic_run}+ zero-volume bars with a frozen price (vendor fill)",
         )
     )
     out.append(_issue(symbol, "zero_volume", Severity.WARN, v == 0, "zero-volume bars"))

@@ -27,10 +27,10 @@ def _date(s: str) -> datetime:
 
 def _symbols(args: argparse.Namespace) -> list[str]:
     syms = [s.upper() for s in args.symbols]
-    if getattr(args, "file", None):
+    for f in getattr(args, "file", None) or []:
         syms += [
             ln.strip().upper()
-            for ln in Path(args.file).read_text().splitlines()
+            for ln in Path(f).read_text().splitlines()
             if ln.strip() and not ln.startswith("#")
         ]
     return sorted(set(syms))
@@ -57,7 +57,7 @@ def cmd_download(args: argparse.Namespace) -> int:
     for adj in adjustments:
         print(
             f"downloading {len(symbols)} symbols, {tf}, adjustment={adj}, "
-            f"feed={settings.alpaca_feed}"
+            f"feed={settings.alpaca_historical_feed}"
         )
         bars = provider.get_bars(symbols, _date(args.start), end, tf, adj)
         for sym, df in bars.items():
@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = data.add_parser("download", help="download bars from Alpaca")
     d.add_argument("symbols", nargs="*")
-    d.add_argument("--file", help="text file with one symbol per line")
+    d.add_argument("--file", action="append", help="file with one symbol per line (repeatable)")
     d.add_argument("--start", default="2016-01-01")
     d.add_argument("--end")
     d.add_argument("--timeframe", default="1d", choices=[t.value for t in Timeframe])
@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = data.add_parser("check", help="run quality checks on stored bars")
     c.add_argument("symbols", nargs="*")
-    c.add_argument("--file")
+    c.add_argument("--file", action="append")
     c.set_defaults(fn=cmd_check)
 
     data.add_parser("factors", help="download Fama-French factors").set_defaults(fn=cmd_factors)

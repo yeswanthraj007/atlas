@@ -88,13 +88,28 @@ def run_backtest(
     bars: dict[str, pd.DataFrame],
     secmaster: SecurityMaster,
     config: BacktestConfig | None = None,
+    membership: pd.DataFrame | None = None,
+    start_trading: datetime | None = None,
 ) -> BacktestResult:
-    """`bars`: instrument_id -> DataFrame[open, high, low, close, (volume)] on a DatetimeIndex."""
+    """`bars`: instrument_id -> DataFrame[open, high, low, close, (volume)] on a DatetimeIndex.
+
+    `membership`: optional boolean frame (dates x instrument ids), True while an instrument
+    belongs to the investable universe on that date. Forward-filled onto the timeline.
+    `start_trading`: bars before this date only build history (warm-up); the strategy is
+    not called and the book stays in cash. `bar_index` counts from the first trading bar.
+    """
     cfg = config or BacktestConfig()
     for inst in bars:
         secmaster.get(inst)
     timeline = sorted(set().union(*(df.index for df in bars.values())))
     closes = pd.DataFrame({i: df["close"] for i, df in bars.items()}).sort_index()
+    # Pre-align every instrument to the timeline once (NaN where it did not trade), so the
+    # per-bar loop is array indexing instead of 500+ DataFrame lookups.
+    full_index = pd.DatetimeIndex(timeline)
+    aligned: dict[str, np.ndarray] = {}
+    for inst, df in bars.items():
+        cols = ["open", "high", "low", "close"] + (["volume"] if "volume" in df else [])
+        aligned[inst] = df[cols].reindex(full_index).to_numpy(dtype=np.float64)
 
     clock: list[datetime] = [timeline[0]]
     marks: dict[str, Decimal] = {}
@@ -120,20 +135,33 @@ def run_backtest(
         clock=lambda: clock[0],
     )
 
+    eligible_at: list[frozenset[str]] | None = None
+    if membership is not None:
+        m = membership.reindex(columns=list(bars)).astype("boolean")
+        m = m.reindex(m.index.union(full_index)).ffill().reindex(full_index)
+        m = m.fillna(False).astype(bool)
+        cols = np.array(m.columns)
+        eligible_at = [frozenset(cols[row]) for row in m.to_numpy()]
+
     equity: dict[datetime, float] = {}
+    first_live = 0
+    if start_trading is not None:
+        first_live = int(np.searchsorted(full_index, pd.Timestamp(start_trading)))
     for i, ts in enumerate(timeline):
         clock[0] = ts
         oms.start_day()
         today = {
-            inst: Bar(r.open, r.high, r.low, r.close, getattr(r, "volume", None))
-            for inst, df in bars.items()
-            if ts in df.index
-            for r in [df.loc[ts]]
+            inst: Bar(*row[:4], row[4] if len(row) > 4 else None)
+            for inst, arr in aligned.items()
+            if not np.isnan((row := arr[i])[3])
         }
         broker.process_bar(ts, today)
         for inst, bar in today.items():
             marks[inst] = to_decimal(bar.close)
 
+        if i < first_live:
+            equity[ts] = float(oms.nav())
+            continue
         ctx = StrategyContext(
             timestamp=ts,
             portfolio_id=cfg.portfolio_id,
@@ -142,7 +170,8 @@ def run_backtest(
             book=oms.book,
             nav=oms.nav(),
             multiplier=secmaster.multiplier,
-            bar_index=i,
+            bar_index=i - first_live,
+            eligible=None if eligible_at is None else eligible_at[i],
         )
         decision = strategy.on_bar(ctx)
         requests: list[OrderRequest] = (

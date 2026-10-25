@@ -1,16 +1,16 @@
 """Alpaca market data and asset universe.
 
-Notes on the free plan: the IEX feed only covers trades on the IEX exchange, so volumes
-are a small fraction of the consolidated tape and intraday prices can differ slightly.
-Daily closes are close to consolidated; volume-based logic (participation caps,
-liquidity filters) should use the SIP feed once you are trading real size.
+Feeds: historical requests use the consolidated SIP tape by default (on the free plan it
+is available for data older than 15 minutes, with history back to 2016). The IEX feed
+only covers the IEX exchange: volumes are a small fraction of the market and its daily
+history starts in July 2020, so it is used only for live quotes on the free plan.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -65,6 +65,9 @@ class AlpacaBarProvider:
         from alpaca.data.enums import DataFeed
         from alpaca.data.requests import StockBarsRequest
 
+        feed = self.settings.alpaca_historical_feed
+        if feed == "sip":  # free plan: SIP only for data older than 15 minutes
+            end = min(end, datetime.now(UTC) - timedelta(minutes=16))
         out: dict[str, pd.DataFrame] = {}
         for batch in _chunks(sorted(set(symbols)), self.batch_size):
             request = StockBarsRequest(
@@ -73,7 +76,7 @@ class AlpacaBarProvider:
                 end=end,
                 timeframe=_alpaca_timeframe(timeframe),
                 adjustment=AlpacaAdjustment(adjustment.value),
-                feed=DataFeed(self.settings.alpaca_feed),
+                feed=DataFeed(feed),
             )
             df = self._client.get_stock_bars(request).df  # SDK handles pagination
             if df is None or df.empty:

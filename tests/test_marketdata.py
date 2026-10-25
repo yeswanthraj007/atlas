@@ -145,7 +145,7 @@ def test_alpaca_provider_batches_and_normalizes() -> None:
     assert sorted(out) == ["AAPL", "MSFT", "SPY"]
     assert len(client.requests) == 2  # 3 unique symbols, batches of 2
     assert client.requests[0].adjustment.value == "all"
-    assert client.requests[0].feed.value == "iex"
+    assert client.requests[0].feed.value == "sip"
     assert str(out["AAPL"].index.tz) == "UTC"
 
 
@@ -172,3 +172,28 @@ def test_loader_refuses_broken_data(tmp_path) -> None:
     lenient = load_for_backtest(store, ["GOOD", "BROKEN"], SecurityMaster(), strict=False)
     assert len(lenient) == 2
     assert returns_panel(out).shape == (29, 1)
+
+
+def test_synthetic_fill_detected_and_trimmed(tmp_path) -> None:
+    """Reused ticker: old company, 20 frozen zero-volume bars, then the new company."""
+    from atlas.marketdata.quality import trim_synthetic_history
+
+    df = normalize(bars(60, seed=3))
+    frozen = df["close"].iloc[19]
+    df.iloc[20:40, df.columns.get_loc("close")] = frozen
+    df.iloc[20:40, df.columns.get_loc("open")] = frozen
+    df.iloc[20:40, df.columns.get_loc("high")] = frozen
+    df.iloc[20:40, df.columns.get_loc("low")] = frozen
+    df.iloc[20:40, df.columns.get_loc("volume")] = 0.0
+    found = {i.check: i for i in check_bars("REUSED", df)}
+    assert found["synthetic_fill"].severity is Severity.ERROR
+    trimmed = trim_synthetic_history(df)
+    assert trimmed.index[0] == df.index[40]
+    assert check_bars("REUSED", trimmed) == []
+
+    store = BarStore(tmp_path)
+    store.write("REUSED", df)
+    out = load_for_backtest(store, ["REUSED"], SecurityMaster())
+    assert len(out["EQ:REUSED"]) == 20
+    with pytest.raises(ValueError, match="REUSED"):
+        load_for_backtest(store, ["REUSED"], SecurityMaster(), trim_synthetic=False)

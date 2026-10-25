@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 from atlas.optimizer.mean_variance import Constraints, OptimizationError, mean_variance
 from atlas.risk.covariance import ledoit_wolf
@@ -28,13 +29,24 @@ class CrossSectionalMomentum:
     gross: float = 0.98  # keep a little cash for costs
     annual_vol_target: float | None = 0.15
 
+    def signal(self, history: pd.DataFrame) -> pd.Series | None:
+        """Momentum score per instrument at the last row of `history` (higher = stronger).
+
+        Only names with a complete price history over the lookback window qualify.
+        Exposed separately so the signal can be scored on its own (information coefficient).
+        """
+        closes = history.tail(self.lookback + 1).dropna(axis=1, how="any")
+        if len(closes) <= self.lookback or closes.shape[1] == 0:
+            return None
+        return closes.iloc[-1 - self.skip] / closes.iloc[0] - 1.0
+
     def on_bar(self, ctx: StrategyContext) -> TargetWeights | None:
         if ctx.bar_index % self.rebalance_every != 0:
             return None
-        closes = ctx.history.dropna(axis=1, how="any").tail(self.lookback + 1)
-        if len(closes) <= self.lookback:
+        signal = self.signal(ctx.tradable_history())
+        if signal is None:
             return None
-        signal = closes.iloc[-1 - self.skip] / closes.iloc[0] - 1.0
+        closes = ctx.history[signal.index].tail(self.lookback + 1)
         winners = signal[signal > 0].nlargest(self.top_n).index.tolist()
         if not winners:
             return {}  # nothing trending up: go to cash

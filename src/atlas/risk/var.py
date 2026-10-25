@@ -133,3 +133,34 @@ def marginal_var(exposures: Vector, cov: Matrix, confidence: float = 0.99) -> Ve
     if sigma == 0.0:
         return np.zeros_like(w)
     return stats.norm.ppf(confidence) * (cov @ w) / sigma
+
+
+def filtered_historical_var(
+    returns: Vector,
+    value: float,
+    confidence: float = 0.99,
+    lam: float = 0.94,
+    warmup: int = 20,
+) -> RiskEstimate:
+    """Filtered historical simulation (Hull & White 1998; Barone-Adesi et al. 1999).
+
+    Plain historical VaR treats a calm year and a crisis year alike, so it under-reacts
+    when volatility jumps and its exceptions cluster. FHS divides each past return by the
+    EWMA volatility at that time, then rescales those standardised shocks by *today's*
+    volatility forecast: the shape of the tail comes from history, its size from now.
+
+    `returns` is the portfolio's own return history (oldest first); `value` is today's
+    portfolio value. Uses the next-day EWMA variance forecast for scaling.
+    """
+    r = np.asarray(returns, dtype=np.float64)
+    if r.size <= warmup:
+        raise ValueError("not enough history for filtered historical simulation")
+    var_t = np.empty(r.size + 1)
+    var_t[0] = np.mean(r[:warmup] ** 2)
+    for t in range(r.size):
+        var_t[t + 1] = lam * var_t[t] + (1.0 - lam) * r[t] ** 2
+    sigma = np.sqrt(var_t)
+    z = r[warmup:] / sigma[warmup:-1]  # shock divided by the vol forecast made before it
+    pnl = z * sigma[-1] * value
+    var, es = var_es_from_pnl(pnl, confidence)
+    return RiskEstimate("filtered_historical", confidence, 1, var, es, len(pnl))

@@ -130,3 +130,19 @@ def test_stress_factor_and_instrument_shocks() -> None:
     assert res.pnl_by_position["C"] == pytest.approx(-100_000)
     with pytest.raises(ValueError):
         run_stress(expo, s)
+
+
+def test_filtered_historical_var_adapts_to_volatility_regime() -> None:
+    from atlas.risk.var import filtered_historical_var
+
+    rng = np.random.default_rng(5)
+    calm = rng.standard_normal(1000) * 0.01
+    stressed = np.concatenate([calm, rng.standard_normal(30) * 0.04])  # vol just quadrupled
+    plain_calm = var_es_from_pnl(calm * 1e6, 0.99)[0]
+    plain_stressed = var_es_from_pnl(stressed * 1e6, 0.99)[0]
+    fhs = filtered_historical_var(stressed, 1e6, 0.99).var
+    assert plain_stressed < 1.3 * plain_calm  # plain HS barely notices the new regime
+    assert fhs > 2.0 * plain_calm  # FHS scales to today's volatility
+    # In a steady regime FHS agrees with the normal quantile
+    steady = filtered_historical_var(calm, 1e6, 0.99, lam=0.99).var
+    assert steady == pytest.approx(stats.norm.ppf(0.99) * 0.01 * 1e6, rel=0.2)

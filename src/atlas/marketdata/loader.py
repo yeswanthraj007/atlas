@@ -7,7 +7,12 @@ from datetime import datetime
 import pandas as pd
 
 from atlas.marketdata.bars import Adjustment, Timeframe
-from atlas.marketdata.quality import QualityConfig, check_bars, has_errors
+from atlas.marketdata.quality import (
+    QualityConfig,
+    check_bars,
+    has_errors,
+    trim_synthetic_history,
+)
 from atlas.marketdata.store import BarStore
 from atlas.refdata.instruments import ETF, Equity, Instrument, SecurityMaster
 
@@ -20,17 +25,22 @@ def load_for_backtest(
     end: datetime | None = None,
     etfs: set[str] | None = None,
     strict: bool = True,
+    trim_synthetic: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """Adjusted daily bars keyed by instrument id, registering instruments as needed.
 
     With `strict`, any symbol with ERROR-level quality issues raises instead of being
     silently included: a backtest should never run on data known to be broken.
+    With `trim_synthetic`, history before a vendor-filled dormant period is dropped, so a
+    reused ticker only carries the current company's prices.
     """
     etfs = etfs or set()
     out: dict[str, pd.DataFrame] = {}
     broken: dict[str, list[str]] = {}
     for sym in symbols:
         df = store.read(sym, Timeframe.DAY, Adjustment.ALL, start, end)
+        if trim_synthetic:
+            df = trim_synthetic_history(df)
         issues = check_bars(sym, df, QualityConfig())
         if has_errors(issues):
             broken[sym] = [i.check for i in issues if i.severity == "error"]

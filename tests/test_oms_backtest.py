@@ -231,3 +231,44 @@ def test_backtest_has_no_lookahead() -> None:
     trade = next(t for t in res.ledger.transactions() if t.kind is TxnKind.TRADE)
     assert trade.effective_at == bars[inst].index[2]
     assert float(trade.price) == pytest.approx(bars[inst]["open"].iloc[2], abs=1e-6)
+
+
+def test_momentum_includes_late_listings_once_history_is_complete() -> None:
+    from atlas.ledger.ledger import PositionBook
+
+    idx = pd.bdate_range("2024-01-01", periods=300, tz="UTC")
+    old = pd.Series(np.linspace(100, 110, 300), idx)  # mild uptrend, full history
+    new = pd.Series(np.nan, idx)
+    new.iloc[20:] = np.linspace(10, 40, 280)  # strong uptrend, listed on bar 20
+    hist = pd.DataFrame({"EQ:OLD": old, "EQ:NEW": new})
+    strat = CrossSectionalMomentum(lookback=252, skip=21, top_n=1, rebalance_every=1)
+    ctx = StrategyContext(
+        idx[-1], PID, {}, hist, PositionBook(PID, None), D(100_000), lambda _: D(1), 0
+    )
+    assert list(strat.on_bar(ctx)) == ["EQ:NEW"]
+    early = StrategyContext(
+        idx[260], PID, {}, hist.iloc[:261], PositionBook(PID, None), D(100_000), lambda _: D(1), 0
+    )
+    assert list(strat.on_bar(early)) == ["EQ:OLD"]  # NEW lacks a full 252-day lookback yet
+
+
+def test_membership_blocks_stocks_before_they_join_the_universe() -> None:
+    from atlas.marketdata.universe import membership_from_additions
+
+    bars, sm = gbm_bars(n_assets=2, n_days=40)
+    a, b = sorted(bars)
+    idx = bars[a].index
+    seen: list[frozenset[str] | None] = []
+
+    class Record:
+        id = "record"
+
+        def on_bar(self, ctx: StrategyContext):
+            seen.append(ctx.eligible)
+            assert set(ctx.tradable_history().columns) <= (ctx.eligible or set())
+            return None
+
+    members = membership_from_additions({a: idx[0], b: idx[10]}, idx)
+    run_backtest(Record(), bars, sm, membership=members)
+    assert seen[5] == frozenset({a})
+    assert seen[15] == frozenset({a, b})
