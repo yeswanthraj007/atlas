@@ -174,8 +174,19 @@ def build_daily(session: str, refresh: bool = True, top: int = 10, progress=prin
             for n, s in registry.signals.items()
         },
     }
-    json_path.write_text(json.dumps(payload, indent=2, default=_jsonable))
+    json_path.write_text(json.dumps(_no_nan(payload), indent=2, default=_jsonable, allow_nan=False))
     return DailyResult(as_of, session, wl, heads, md_path, json_path)
+
+
+def _no_nan(v: object) -> object:
+    """Strict JSON: NaN/inf become null (the dashboard's database rejects NaN)."""
+    if isinstance(v, dict):
+        return {k: _no_nan(x) for k, x in v.items()}
+    if isinstance(v, list | tuple):
+        return [_no_nan(x) for x in v]
+    if isinstance(v, float) and not np.isfinite(v):
+        return None
+    return v
 
 
 def _records(df: pd.DataFrame) -> list[dict]:

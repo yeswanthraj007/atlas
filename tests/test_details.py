@@ -30,3 +30,14 @@ def test_earnings_calendar_uses_announcement_gaps(tmp_path):
         since == 85
     )  # Aug 1 21:00 UTC -> Oct 26 00:00 UTC is 85 full days; future release ignored
     assert nxt == 90.5 - 85  # median of the gaps Feb->May (89 days) and May->Aug (92 days)
+
+
+def test_report_json_has_no_nan():
+    import json
+    import math
+
+    from atlas.recommend.daily import _no_nan
+
+    out = _no_nan({"a": math.nan, "b": [1.0, math.inf, {"c": float("nan")}], "d": "x"})
+    assert out == {"a": None, "b": [1.0, None, {"c": None}], "d": "x"}
+    json.dumps(out, allow_nan=False)
