@@ -16,30 +16,40 @@ from dotenv import load_dotenv
 
 from atlas.lock import single_instance
 
+CONSTITUENTS = [
+    "data/universes/sp500_constituents.csv",
+    "data/universes/sp400_constituents.csv",
+    "data/universes/sp600_constituents.csv",
+]
+
 
 def main() -> None:
     job = sys.argv[1] if len(sys.argv) > 1 else ""
+    universe = sys.argv[2] if len(sys.argv) > 2 else "data/universes/sp500.txt"
+    forms = tuple(sys.argv[3].split(",")) if len(sys.argv) > 3 else ("10-K", "10-Q")
     load_dotenv(".env")
-    symbols = Path("data/universes/sp500.txt").read_text().split()
+    symbols = Path(universe).read_text().split()
+    from atlas.marketdata.sec import ciks_from_files
+
+    ciks = {
+        s: c
+        for s, c in ciks_from_files([p for p in CONSTITUENTS if Path(p).exists()]).items()
+        if s in set(symbols)
+    }
     t0 = time.time()
     with single_instance(f"download_{job}"):
         if job == "filings":
             from atlas.marketdata.filings import FilingClient
-            from atlas.marketdata.sec import symbols_to_ciks
 
             FilingClient(os.environ["SEC_USER_AGENT"]).download(
-                symbols_to_ciks("data/universes/sp500_constituents.csv"),
-                forms=("10-K", "10-Q"),
-                since="2014-01-01",
-                workers=6,
+                ciks, forms=forms, since="2014-01-01", workers=6
             )
         elif job == "earnings":
             from atlas.marketdata.earnings_releases import EarningsReleaseDownloader
             from atlas.marketdata.filings import FilingClient
-            from atlas.marketdata.sec import symbols_to_ciks
 
             EarningsReleaseDownloader(FilingClient(os.environ["SEC_USER_AGENT"])).download(
-                symbols_to_ciks("data/universes/sp500_constituents.csv"), since="2014-01-01"
+                ciks, since="2014-01-01"
             )
         elif job == "news":
             from atlas.marketdata.news import NewsDownloader

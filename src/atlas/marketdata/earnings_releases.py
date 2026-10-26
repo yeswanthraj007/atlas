@@ -151,7 +151,11 @@ class EarningsReleaseDownloader:
                     progress(f"  downloaded {n}/{len(unique)}")
         index = pd.DataFrame([asdict(r) for r in rels if r.accession in ok])
         index = index.sort_values(["symbol", "filed"]) if not index.empty else index
-        index.to_parquet(self.root / "earnings_index.parquet")
+        existing = self.root / "earnings_index.parquet"
+        if existing.exists():  # merge with earlier downloads (other universes)
+            index = pd.concat([pd.read_parquet(existing), index], ignore_index=True)
+            index = index.drop_duplicates(["symbol", "accession"], keep="last")
+        index.to_parquet(existing)
         progress(f"done: {len(index)} releases, {len(failed)} failures {failed[:5]}")
         return index
 

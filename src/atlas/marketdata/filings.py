@@ -190,7 +190,11 @@ class FilingClient:
                     progress(f"  downloaded {n}/{len(filings)}")
         rows = [f.__dict__ for f in filings if f.accession in done]
         index = pd.DataFrame(rows).sort_values(["symbol", "filed"])
-        index.to_parquet(self.root / "filings_index.parquet")
+        existing = self.root / "filings_index.parquet"
+        if existing.exists():  # merge with earlier downloads (other universes)
+            index = pd.concat([pd.read_parquet(existing), index], ignore_index=True)
+            index = index.drop_duplicates(["symbol", "accession"], keep="last")
+        index.to_parquet(existing)
         progress(f"done: {len(index)} filings, {len(failed)} failures {failed[:5]}")
         return index
 

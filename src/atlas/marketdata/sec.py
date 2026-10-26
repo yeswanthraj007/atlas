@@ -252,3 +252,12 @@ def symbols_to_ciks(constituents_csv: str) -> dict[str, int]:
 
 def items_for(facts: pd.DataFrame, symbols: Iterable[str]) -> dict[str, pd.DataFrame]:
     return {s: g.drop(columns="symbol") for s, g in facts.groupby("symbol") if s in set(symbols)}
+
+
+def ciks_from_files(paths: list[str]) -> dict[str, int]:
+    """symbol -> CIK across several constituent CSVs (later files do not override)."""
+    out: dict[str, int] = {}
+    for path in paths:
+        for sym, cik in symbols_to_ciks(path).items():
+            out.setdefault(sym, cik)
+    return out
