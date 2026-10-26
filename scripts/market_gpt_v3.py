@@ -127,7 +127,7 @@ def main(smoke: bool = False) -> None:
             if smoke
             else {}
         )
-        return RankConfig(**{**base, **kw})
+        return RankConfig(**{**base, "drop_market": True, **kw})  # Amendment 2
 
     def trained(tag: str, kind: str, width: int, refit: str, cfg: RankConfig) -> ScoreModel:
         path = out / f"{tag}.pt"
@@ -211,7 +211,7 @@ def main(smoke: bool = False) -> None:
             part = m.iloc[ix]
             for s in seeds:
                 model = trained(tag(kind, refit, s), kind, width, refit, RankConfig())
-                total[ix] += predict_scores(model, panel, part, kind == "news")
+                total[ix] += predict_scores(model, panel, part, kind == "news", drop_market=True)
         return zscore(total / len(seeds))
 
     ens = scores("news", SEEDS)

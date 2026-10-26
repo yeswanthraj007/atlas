@@ -103,3 +103,25 @@ Made at the user's request, so that v3 does everything the plan promised:
    - Every choice uses refit A, seed 0, and 2023 IC only.
    - The price-only ablation uses the chosen width.
 Nothing else changes: the success criteria, test, baseline and trial accounting are as above.
+
+## Amendment 2 (2026-10-26; based on 2023 validation only; no 2024+ metric has been computed)
+Problem found: in the first full run, fine-tuning memorised history. Training correlation
+rose to 0.38 while 2023 IC stayed negative (best -0.019). Cause: the market-return input is
+identical for every stock on a date, so its 120-day history fingerprints the date. The model
+learned which kinds of stocks did well in each past period.
+Exploration on 2023 only (scripts/explore_v3_fixes.py, refit A, width 128):
+
+| Variant | Best 2023 IC | Training correlation |
+|---|---|---|
+| No fix | -0.019 | 0.38 |
+| Market input hidden (3 seeds) | +0.071, +0.021, +0.053 (mean +0.048) | about 0.09 |
+| Less overlap (stride 5), market input kept | -0.032 | 0.23 |
+| Hidden + stride 5 | -0.014 | 0.12 |
+| Hidden + stride 5 + dropout 0.3, weight decay 0.2 | -0.003 | 0.10 |
+
+Change: every fine-tuning run, and every prediction, hides the market-return input
+(`drop_market=True`). Pretraining is unchanged; next-day market context is legitimate there.
+Overlap and regularisation are unchanged (neither helped). The tuning run made under the old
+setup is archived, not reused. The loss, width and learning-rate choices are re-made under
+the new setup, as in Amendment 1. Success criteria, test, baseline and trial accounting are
+unchanged.

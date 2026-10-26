@@ -39,7 +39,11 @@ VARIANTS = {
 }
 
 
+SEED_CHECK = {f"drop_market_seed{k}": dict(drop_market=True, seed=k) for k in (1, 2)}
+
+
 def main() -> None:
+    variants = SEED_CHECK if "--seeds" in sys.argv else VARIANTS
     rd = load_research_data("price", universe="sp1500")
     dates = rd.closes.index
     news = news_inputs(rd, dates, extra_roots=("data/news_midsmall",))
@@ -51,7 +55,7 @@ def main() -> None:
         torch.load("data/reports/market_gpt_v3/backbone_news_w128.pt", map_location="cpu")
     )
     out = {}
-    for name, kw in VARIANTS.items():
+    for name, kw in variants.items():
         kw = dict(kw)
         dropout = kw.pop("dropout", 0.0)
         cfg = RankConfig(samples_per_epoch=200_000, epochs=3, patience=3, **kw)
@@ -65,7 +69,8 @@ def main() -> None:
             flush=True,
         )
     print("\nbaseline (stopped v3 run, no fix): best 2023 IC -0.0190, train corr up to 0.38")
-    Path("data/reports/market_gpt_v3/explore_fixes.json").write_text(json.dumps(out))
+    tag = "_seeds" if "--seeds" in sys.argv else ""
+    Path(f"data/reports/market_gpt_v3/explore_fixes{tag}.json").write_text(json.dumps(out))
 
 
 if __name__ == "__main__":
