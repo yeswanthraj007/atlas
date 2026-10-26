@@ -20,7 +20,7 @@ from atlas.marketdata.sec import items_for, load_facts
 from atlas.marketdata.store import BarStore
 from atlas.marketdata.universe import membership_from_additions, sp500_addition_dates
 from atlas.refdata.instruments import SecurityMaster
-from atlas.risk.liquidity import corwin_schultz_spread
+from atlas.risk.liquidity import liquidity_tier_cost
 
 CONSTITUENTS = "data/universes/sp500_constituents.csv"
 UNIVERSE = "data/universes/sp500.txt"
@@ -46,7 +46,7 @@ class ResearchData:
     benchmark: pd.Series  # SPY adjusted close
     sectors: dict[str, str]
     factors: dict[str, pd.DataFrame]
-    spread: pd.DataFrame | None = None  # Corwin-Schultz round-trip cost estimate per stock-day
+    spread: pd.DataFrame | None = None  # assumed round-trip cost per stock-day (liquidity tier)
 
 
 def load_research_data(
@@ -58,7 +58,7 @@ def load_research_data(
     Membership: S&P 500 names enter on their index-addition date. Mid/small names have no
     addition dates in the free source, so they count from their first price (today's
     members only: survivorship bias, disclosed in every result on these universes).
-    `spread` holds the Corwin-Schultz trading-cost estimate (not a model feature)."""
+    `spread` holds assumed round-trip costs by liquidity tier (not a model feature)."""
     store = BarStore(data_dir)
     sm = SecurityMaster()
     symbols = Path(UNIVERSES[universe]).read_text().split()
@@ -86,9 +86,8 @@ def load_research_data(
 
     split = panel(Adjustment.SPLIT)
     factors: dict[str, pd.DataFrame] = {}
-    high = pd.DataFrame({k: v["high"] for k, v in bars.items()}).reindex(closes.index)
-    low = pd.DataFrame({k: v["low"] for k, v in bars.items()}).reindex(closes.index)
-    spread = corwin_schultz_spread(high, low)
+    volume = pd.DataFrame({k: v["volume"] for k, v in bars.items()}).reindex(closes.index)
+    spread = liquidity_tier_cost(closes, volume)
     if features in ("price", "all", "extended"):
         factors.update(price_factor_frames(closes))
     if features in ("fundamental", "all", "extended"):

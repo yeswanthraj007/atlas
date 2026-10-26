@@ -226,7 +226,16 @@ def evaluate_candidate(
             "dev_yearly_ic": {str(k): round(float(v), 4) for k, v in yearly.items()},
             "universe": universe,
             "dev_cost": float(dres.cost.mean()) if len(dres.cost) else None,
-            "dev_spread_net": float((dres.net * sign).mean()) if len(dres.cost) else None,
+            # trade in the signal's direction; costs are always paid, whatever the sign
+            "dev_spread_net": float(
+                (dres.spread * sign - dres.cost.reindex(dres.spread.index).fillna(0.0)).mean()
+            )
+            if len(dres.cost)
+            else None,
+            "dev_spread_at_cost": {
+                f"{bps}bps": float((dres.spread * sign).mean() - 2 * bps / 1e4)
+                for bps in (0, 10, 30)
+            },
             "dev_segments": {
                 k: {"ic": float(v.mean()), "t": _t(v), "dates": len(v)}
                 for k, v in dres.by_segment.items()
@@ -263,7 +272,11 @@ def evaluate_candidate(
             "holdout_ic_t_signed": hold_t,
             "holdout_dates": len(hic),
             "holdout_spread": float(hls.mean()),
-            "holdout_spread_net": float((hres.net * sign).mean()) if len(hres.cost) else None,
+            "holdout_spread_net": float(
+                (hres.spread * sign - hres.cost.reindex(hres.spread.index).fillna(0.0)).mean()
+            )
+            if len(hres.cost)
+            else None,
             "holdout_segments": {
                 k: {"ic": float(v.mean()), "t": _t(v), "dates": len(v)}
                 for k, v in hres.by_segment.items()

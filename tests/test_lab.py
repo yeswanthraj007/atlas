@@ -131,3 +131,20 @@ def test_signal_that_loses_after_costs_is_not_promoted(lab) -> None:
     install("cand_expensive", honest)
     t = evaluate_candidate("cand_expensive", rd, log, reg_path, PERIODS, progress=lambda _: None)
     assert t.status == "rejected_holdout" and t.metrics["holdout_spread_net"] < 0
+
+
+def test_flipped_signal_still_pays_costs(lab) -> None:
+    """A signal that works backwards is traded in reverse; costs still reduce its return."""
+    log, reg_path = lab
+    rd = research_data()
+    rd.spread = pd.DataFrame(0.004, index=rd.closes.index, columns=rd.closes.columns)
+
+    def backwards(data):
+        return -data.factors["q"]
+
+    install("cand_backwards", backwards)
+    t = evaluate_candidate("cand_backwards", rd, log, reg_path, PERIODS, progress=lambda _: None)
+    m = t.metrics
+    assert m["dev_ic"] < 0
+    assert m["dev_spread_net"] == pytest.approx(-m["dev_spread"] - 0.008)
+    assert m["dev_spread_net"] < -m["dev_spread"]

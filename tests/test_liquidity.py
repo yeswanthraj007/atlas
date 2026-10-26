@@ -30,3 +30,13 @@ def test_uses_no_future_data() -> None:
     full = corwin_schultz_spread(high, low)
     cut = corwin_schultz_spread(high.iloc[:250], low.iloc[:250])
     assert full.iloc[249].item() == pytest.approx(cut.iloc[249].item())
+
+
+def test_liquidity_tiers_assign_lower_costs_to_more_liquid_stocks() -> None:
+    from atlas.risk.liquidity import DEFAULT_TIER_COSTS, liquidity_tier_cost
+
+    idx = pd.bdate_range("2024-01-01", periods=100)
+    close = pd.DataFrame(100.0, index=idx, columns=["big", "mid", "small"])
+    volume = pd.DataFrame({"big": 1e7, "mid": 1e6, "small": 1e4}, index=idx)
+    cost = liquidity_tier_cost(close, volume).iloc[-1]
+    assert list(cost) == [DEFAULT_TIER_COSTS[0], DEFAULT_TIER_COSTS[1], DEFAULT_TIER_COSTS[2]]
