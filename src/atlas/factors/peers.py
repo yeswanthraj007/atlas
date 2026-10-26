@@ -12,6 +12,7 @@ fingerprints are most similar among those available then.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -44,7 +45,12 @@ def build_fingerprints(
     progress=print,
 ) -> pd.DataFrame:
     """One row per 10-K: symbol, accepted (UTC), and a unit-length embedding."""
+    tenk = index[index["form"] == "10-K"].drop_duplicates("accession")
+    # The cache name carries a fingerprint of the exact filing set, so adding filings
+    # (e.g. a bigger universe) builds a new cache instead of silently reusing an old one.
+    digest = hashlib.sha1("\n".join(sorted(tenk["accession"])).encode()).hexdigest()[:10]
     cache = Path(cache)
+    cache = cache.with_name(f"{cache.stem}_{digest}{cache.suffix}")
     if cache.exists():
         z = np.load(cache, allow_pickle=True)
         return pd.DataFrame(
@@ -54,7 +60,6 @@ def build_fingerprints(
                 "emb": list(z["emb"]),
             }
         )
-    tenk = index[index["form"] == "10-K"].drop_duplicates("accession")
     texts, rows = [], []
     for r in tenk.itertuples():
         try:
