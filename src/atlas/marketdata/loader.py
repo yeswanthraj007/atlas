@@ -26,6 +26,7 @@ def load_for_backtest(
     etfs: set[str] | None = None,
     strict: bool = True,
     trim_synthetic: bool = True,
+    skip_broken: bool = False,
 ) -> dict[str, pd.DataFrame]:
     """Adjusted daily bars keyed by instrument id, registering instruments as needed.
 
@@ -33,23 +34,32 @@ def load_for_backtest(
     silently included: a backtest should never run on data known to be broken.
     With `trim_synthetic`, history before a vendor-filled dormant period is dropped, so a
     reused ticker only carries the current company's prices.
+    With `skip_broken`, symbols with errors or no stored data are left out (and listed in
+    `load_for_backtest.skipped`) instead of raising: for research over large universes.
     """
     etfs = etfs or set()
     out: dict[str, pd.DataFrame] = {}
     broken: dict[str, list[str]] = {}
+    skipped: dict[str, list[str]] = {}
     for sym in symbols:
-        df = store.read(sym, Timeframe.DAY, Adjustment.ALL, start, end)
+        try:
+            df = store.read(sym, Timeframe.DAY, Adjustment.ALL, start, end)
+        except FileNotFoundError:
+            skipped[sym] = ["no data"]
+            continue
         if trim_synthetic:
             df = trim_synthetic_history(df)
         issues = check_bars(sym, df, QualityConfig())
         if has_errors(issues):
             broken[sym] = [i.check for i in issues if i.severity == "error"]
-            if strict:
+            if strict or skip_broken:
+                skipped[sym] = broken[sym]
                 continue
         inst: Instrument = ETF.of(sym) if sym in etfs else Equity.of(sym)
         inst = secmaster.add(inst)
         out[inst.id] = df
-    if broken and strict:
+    load_for_backtest.skipped = skipped  # type: ignore[attr-defined]
+    if broken and strict and not skip_broken:
         raise ValueError(f"data quality errors, refusing to backtest: {broken}")
     return out
 

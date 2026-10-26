@@ -90,15 +90,32 @@ def lookahead_check(
     return True, f"identical on {len(cuts)} cut dates"
 
 
+@dataclass
+class ICResult:
+    ic: pd.Series  # Spearman IC per date
+    spread: pd.Series  # top-decile minus bottom-decile return per date (gross)
+    cost: pd.Series  # round-trip cost of both legs per date (Corwin-Schultz), if known
+    by_segment: dict[str, pd.Series]  # IC per date within each named segment
+
+    @property
+    def net(self) -> pd.Series:
+        return self.spread - self.cost.reindex(self.spread.index).fillna(0.0)
+
+
 def _ic_series(
     signal: pd.DataFrame,
     closes: pd.DataFrame,
     membership: pd.DataFrame,
     dates: pd.DatetimeIndex,
     horizon: int,
-) -> tuple[pd.Series, pd.Series]:
+    spread_cost: pd.DataFrame | None = None,
+    segments: dict[str, set[str]] | None = None,
+) -> ICResult:
+    """Cross-sectional scoring on each date. Costs assume the whole decile portfolio is
+    replaced each period (both legs pay a full round-trip spread): deliberately pessimistic."""
     fwd = closes.shift(-horizon) / closes - 1.0
-    ics, spreads = {}, {}
+    ics, spreads, costs = {}, {}, {}
+    seg_ics: dict[str, dict] = {k: {} for k in (segments or {})}
     for d in dates:
         s = signal.loc[d] if d in signal.index else None
         if s is None:
@@ -111,8 +128,21 @@ def _ic_series(
             continue
         ics[d] = stats.spearmanr(both["s"], both["r"]).statistic
         q = pd.qcut(both["s"].rank(method="first"), 10, labels=False)
-        spreads[d] = both["r"][q == 9].mean() - both["r"][q == 0].mean()
-    return pd.Series(ics, dtype=float), pd.Series(spreads, dtype=float)
+        top, bottom = both.index[q == 9], both.index[q == 0]
+        spreads[d] = both["r"][top].mean() - both["r"][bottom].mean()
+        if spread_cost is not None and d in spread_cost.index:
+            c = spread_cost.loc[d]
+            costs[d] = float(c.reindex(top).mean() + c.reindex(bottom).mean())
+        for name, members in (segments or {}).items():
+            sub = both[both.index.isin(members)]
+            if len(sub) >= 30 and sub["s"].nunique() >= 5:
+                seg_ics[name][d] = stats.spearmanr(sub["s"], sub["r"]).statistic
+    return ICResult(
+        pd.Series(ics, dtype=float),
+        pd.Series(spreads, dtype=float),
+        pd.Series(costs, dtype=float),
+        {k: pd.Series(v, dtype=float) for k, v in seg_ics.items()},
+    )
 
 
 def _t(x: pd.Series) -> float:
@@ -136,6 +166,8 @@ def evaluate_candidate(
     registry_path=None,
     periods: Periods | None = None,
     progress=print,
+    segments: dict[str, set[str]] | None = None,
+    universe: str = "sp500",
 ) -> Trial:
     log = log or TrialLog()
     periods = periods or Periods()
@@ -176,7 +208,8 @@ def evaluate_candidate(
         & (idx <= pd.Timestamp(periods.dev_end, tz="UTC"))
     ][::h]
     dev = dev[idx.get_indexer(dev) + h < len(idx)]
-    ic, ls = _ic_series(full, rd.closes, rd.membership, dev, h)
+    dres = _ic_series(full, rd.closes, rd.membership, dev, h, rd.spread, segments)
+    ic, ls = dres.ic, dres.spread
     yearly = ic.groupby(ic.index.year).mean()
     dev_t = _t(ic)
     sign = 1.0 if ic.mean() >= 0 else -1.0
@@ -191,8 +224,24 @@ def evaluate_candidate(
             "dev_spread": float(ls.mean()),
             "dev_ls_sharpe_per_period": ls_sharpe * sign,
             "dev_yearly_ic": {str(k): round(float(v), 4) for k, v in yearly.items()},
+            "universe": universe,
+            "dev_cost": float(dres.cost.mean()) if len(dres.cost) else None,
+            "dev_spread_net": float((dres.net * sign).mean()) if len(dres.cost) else None,
+            "dev_segments": {
+                k: {"ic": float(v.mean()), "t": _t(v), "dates": len(v)}
+                for k, v in dres.by_segment.items()
+                if len(v)
+            },
         }
     )
+    for k, v in trial.metrics["dev_segments"].items():
+        progress(f"    segment {k}: IC {v['ic']:+.4f}, t {v['t']:+.2f} over {v['dates']} dates")
+    if trial.metrics["dev_cost"] is not None:
+        progress(
+            f"    decile spread {float(ls.mean()) * sign:+.2%} gross, "
+            f"{trial.metrics['dev_spread_net']:+.2%} after an estimated "
+            f"{trial.metrics['dev_cost']:.2%} round-trip cost per period"
+        )
     progress(
         f"  gate 2 development: IC {ic.mean():+.4f}, t {dev_t:+.2f}, same sign in "
         f"{years_ok:.0%} of years"
@@ -205,7 +254,8 @@ def evaluate_candidate(
     trial.holdout_opened = True
     hold = idx[idx >= pd.Timestamp(periods.holdout_start, tz="UTC")][::h]
     hold = hold[idx.get_indexer(hold) + h < len(idx)]
-    hic, hls = _ic_series(full, rd.closes, rd.membership, hold, h)
+    hres = _ic_series(full, rd.closes, rd.membership, hold, h, rd.spread, segments)
+    hic, hls = hres.ic, hres.spread
     hold_t = _t(hic) * sign
     trial.metrics.update(
         {
@@ -213,10 +263,19 @@ def evaluate_candidate(
             "holdout_ic_t_signed": hold_t,
             "holdout_dates": len(hic),
             "holdout_spread": float(hls.mean()),
+            "holdout_spread_net": float((hres.net * sign).mean()) if len(hres.cost) else None,
+            "holdout_segments": {
+                k: {"ic": float(v.mean()), "t": _t(v), "dates": len(v)}
+                for k, v in hres.by_segment.items()
+                if len(v)
+            },
         }
     )
     progress(f"  gate 3 frozen holdout: IC {hic.mean():+.4f}, t (dev sign) {hold_t:+.2f}")
-    if hold_t < HOLDOUT_T:
+    net = trial.metrics["holdout_spread_net"]
+    if hold_t < HOLDOUT_T or (net is not None and net <= 0):
+        if net is not None:
+            progress(f"    holdout decile spread after costs: {net:+.2%} per period")
         trial.status = "rejected_holdout"
         return log.append(trial)
 

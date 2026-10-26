@@ -145,7 +145,15 @@ def cmd_research_run(args: argparse.Namespace) -> int:
     from atlas.research import load_research_data
 
     periods = Periods(dev_end=args.dev_end, holdout_start=args.holdout_start)
-    trial = evaluate_candidate(args.name, load_research_data(args.features), periods=periods)
+    rd = load_research_data(args.features, universe=args.universe)
+    segments = None
+    if args.universe == "sp1500":
+        sp500 = {f"EQ:{s}" for s in Path("data/universes/sp500.txt").read_text().split()}
+        cols = set(rd.closes.columns)
+        segments = {"sp500": cols & sp500, "mid_small": cols - sp500}
+    trial = evaluate_candidate(
+        args.name, rd, periods=periods, segments=segments, universe=args.universe
+    )
     print(f"trial #{trial.trial_id}: {trial.status}")
     return 0 if trial.status == "promoted" else 1
 
@@ -203,6 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--features", default="extended")
     rr.add_argument("--dev-end", default="2024-12-31")
     rr.add_argument("--holdout-start", default="2025-01-01")
+    rr.add_argument("--universe", default="sp500", choices=["sp500", "midsmall", "sp1500"])
     rr.set_defaults(fn=cmd_research_run)
     research.add_parser("log", help="show every trial").set_defaults(fn=cmd_research_log)
     return p

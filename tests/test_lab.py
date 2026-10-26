@@ -100,3 +100,34 @@ def test_rationale_is_required_and_log_is_append_only(lab) -> None:
     with pytest.raises(ValueError, match="append-only"):
         log.append(Trial(1, "y", "test", "h" * 20, "r" * 20, "sha", "abc", "promoted"))
     assert log.next_id() == 2
+
+
+def test_costs_and_segments_are_reported(lab) -> None:
+    log, reg_path = lab
+    rd = research_data()
+    rd.spread = pd.DataFrame(0.004, index=rd.closes.index, columns=rd.closes.columns)
+    half = set(rd.closes.columns[:60])
+    install("cand_costs", honest)
+    t = evaluate_candidate(
+        "cand_costs",
+        rd,
+        log,
+        reg_path,
+        PERIODS,
+        progress=lambda _: None,
+        segments={"first_half": half, "second_half": set(rd.closes.columns) - half},
+    )
+    m = t.metrics
+    assert m["dev_cost"] == pytest.approx(0.008)  # two legs x 40 bps round trip
+    assert m["dev_spread_net"] == pytest.approx(m["dev_spread"] - 0.008)
+    assert set(m["dev_segments"]) == {"first_half", "second_half"}
+    assert all(v["t"] > 2 for v in m["dev_segments"].values())
+
+
+def test_signal_that_loses_after_costs_is_not_promoted(lab) -> None:
+    log, reg_path = lab
+    rd = research_data()
+    rd.spread = pd.DataFrame(0.5, index=rd.closes.index, columns=rd.closes.columns)  # absurd
+    install("cand_expensive", honest)
+    t = evaluate_candidate("cand_expensive", rd, log, reg_path, PERIODS, progress=lambda _: None)
+    assert t.status == "rejected_holdout" and t.metrics["holdout_spread_net"] < 0
