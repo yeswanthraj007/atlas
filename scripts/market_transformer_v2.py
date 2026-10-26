@@ -169,8 +169,14 @@ def chronos_forecasts(closes: pd.DataFrame, rows: pd.DataFrame, progress=print):
     return ret_f, vol_f
 
 
-def main(smoke: bool = False) -> None:
-    """smoke=True: 25 stocks, random news vectors, 1 epoch, nothing logged (pipeline check)."""
+def _load(model: MarketGPT, path: Path) -> MarketGPT:
+    model.load_state_dict(torch.load(path, map_location="cpu"))
+    return model.to(device()).eval()
+
+
+def main(smoke: bool = False, resume: bool = False) -> None:
+    """smoke=True: 25 stocks, random news vectors, 1 epoch, nothing logged (pipeline check).
+    resume=True: load the frozen models saved by an interrupted run instead of training."""
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"pre-registration: {PREREG}")
     t0 = time.time()
@@ -217,21 +223,27 @@ def main(smoke: bool = False) -> None:
         print(f"\n== {name} ==")
         model = MarketGPT(EMB_DIM)
         print(f"{sum(p.numel() for p in model.parameters()):,} parameters")
-        cfg = GPTConfig(pretrain_epochs=1, finetune_epochs=1) if smoke else GPTConfig()
-        model = fit_stage(model, "pretrain", panel, pre_tr, pre_va, cfg, use_news)
-        backbones[name] = copy.deepcopy(model)
-        model = fit_stage(model, "classify", panel, ft_tr, ft_va, cfg, use_news)
-        torch.save(model.state_dict(), OUT / f"{name}.pt")
+        if resume:
+            model = _load(model, OUT / f"{name}.pt")
+        else:
+            cfg = GPTConfig(pretrain_epochs=1, finetune_epochs=1) if smoke else GPTConfig()
+            model = fit_stage(model, "pretrain", panel, pre_tr, pre_va, cfg, use_news)
+            backbones[name] = copy.deepcopy(model)
+            model = fit_stage(model, "classify", panel, ft_tr, ft_va, cfg, use_news)
+            torch.save(model.state_dict(), OUT / f"{name}.pt")
         ret_scores[name] = predict_rows(model, "classify", panel, m_test, use_news)
         ret_results.append(eval_returns(name, m_test, ret_scores[name], rd.spread))
 
     # D: volatility transformer on the pretrained news backbone
     print("\n== vol_transformer ==")
-    vol_model = backbones["market_gpt_news"]
     vtr, vva = ft_tr[ft_tr["fwd_log_vol"].notna()], ft_va[ft_va["fwd_log_vol"].notna()]
-    vol_cfg = GPTConfig(finetune_epochs=1) if smoke else GPTConfig()
-    vol_model = fit_stage(vol_model, "vol", panel, vtr, vva, vol_cfg, True)
-    torch.save(vol_model.state_dict(), OUT / "vol_transformer.pt")
+    if resume:
+        vol_model = _load(MarketGPT(EMB_DIM), OUT / "vol_transformer.pt")
+    else:
+        vol_model = backbones["market_gpt_news"]
+        vol_cfg = GPTConfig(finetune_epochs=1) if smoke else GPTConfig()
+        vol_model = fit_stage(vol_model, "vol", panel, vtr, vva, vol_cfg, True)
+        torch.save(vol_model.state_dict(), OUT / "vol_transformer.pt")
     mv = m_test[m_test["fwd_log_vol"].notna()].reset_index(drop=True)
     vol_pred = predict_rows(vol_model, "vol", panel, mv, True)
 
@@ -389,4 +401,4 @@ def main(smoke: bool = False) -> None:
 if __name__ == "__main__":
     import sys
 
-    main(smoke="--smoke" in sys.argv)
+    main(smoke="--smoke" in sys.argv, resume="--resume" in sys.argv)
