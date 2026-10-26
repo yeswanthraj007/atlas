@@ -151,20 +151,51 @@ def name_finder(aliases: dict[str, list[str]]) -> tuple[re.Pattern[str], dict[st
     return re.compile(r"(?<![\w&])(?:" + alternation + r")(?![\w&])"), name_to_symbol
 
 
-def build_link_table(
-    index: pd.DataFrame, constituents: pd.DataFrame, root: str = "data/sec", progress=print
-) -> pd.DataFrame:
-    finder = name_finder(company_aliases(constituents))
-    rows: list[Link] = []
-    tenk = index[index["form"] == "10-K"].drop_duplicates("accession")
-    for n, r in enumerate(tenk.itertuples(), 1):
+def _scan(args: tuple) -> list[Link]:
+    root, filings, finder = args
+    out: list[Link] = []
+    for cik, accession, symbol, accepted in filings:
         try:
-            text = read_text(root, r.cik, r.accession)
+            text = read_text(root, cik, accession)
         except FileNotFoundError:
             continue
-        rows += extract_links(text, r.symbol, r.accepted, finder)
-        if n % 500 == 0:
-            progress(f"  scanned {n}/{len(tenk)} 10-Ks, {len(rows):,} link sentences")
+        out += extract_links(text, symbol, accepted, finder)
+    return out
+
+
+def build_link_table(
+    index: pd.DataFrame,
+    constituents: pd.DataFrame,
+    root: str = "data/sec",
+    progress=print,
+    workers: int = 1,
+) -> pd.DataFrame:
+    """Scan every 10-K for links. `workers` > 1 scans in parallel processes (the combined
+    name pattern is slow for ~3,000 names; results are identical)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    finder = name_finder(company_aliases(constituents))
+    tenk = index[index["form"] == "10-K"].drop_duplicates("accession")
+    filings = list(
+        zip(tenk["cik"], tenk["accession"], tenk["symbol"], tenk["accepted"], strict=True)
+    )
+    chunks = [(root, filings[i : i + 200], finder) for i in range(0, len(filings), 200)]
+    rows: list[Link] = []
+    if workers > 1:
+        with ProcessPoolExecutor(workers) as pool:
+            for n, part in enumerate(pool.map(_scan, chunks), 1):
+                rows += part
+                progress(
+                    f"  scanned {min(n * 200, len(filings))}/{len(filings)} 10-Ks, "
+                    f"{len(rows):,} link sentences"
+                )
+    else:
+        for n, chunk in enumerate(chunks, 1):
+            rows += _scan(chunk)
+            progress(
+                f"  scanned {min(n * 200, len(filings))}/{len(filings)} 10-Ks, "
+                f"{len(rows):,} link sentences"
+            )
     df = pd.DataFrame([r.__dict__ for r in rows])
     if df.empty:
         return df
