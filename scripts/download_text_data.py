@@ -54,7 +54,10 @@ def main() -> None:
         elif job == "news":
             from atlas.marketdata.news import NewsDownloader
 
-            NewsDownloader().download(symbols, datetime(2016, 1, 1, tzinfo=UTC), datetime.now(UTC))
+            root = sys.argv[3] if len(sys.argv) > 3 else "data/news"  # separate folder per universe
+            NewsDownloader(root=root).download(
+                symbols, datetime(2016, 1, 1, tzinfo=UTC), datetime.now(UTC)
+            )
         else:
             raise SystemExit("usage: download_text_data.py filings|earnings|news")
     print(f"{job} done in {time.time() - t0:.0f}s", flush=True)

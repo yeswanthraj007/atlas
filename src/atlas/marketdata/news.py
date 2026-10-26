@@ -115,9 +115,14 @@ class NewsDownloader:
 
 
 def load_news(
-    root: str | Path = "data/news", start: str | None = None, end: str | None = None
+    root: str | Path = "data/news",
+    start: str | None = None,
+    end: str | None = None,
+    extra_roots: tuple[str | Path, ...] = (),
 ) -> pd.DataFrame:
-    files = sorted(Path(root).glob("*.parquet"))
+    """All downloaded articles, de-duplicated by id. `extra_roots` adds folders from other
+    downloads (e.g. a separate mid/small-cap news download)."""
+    files = sorted(f for r in (root, *extra_roots) for f in Path(r).glob("*.parquet"))
     if start:
         files = [f for f in files if f.stem >= start[:7]]
     if end:

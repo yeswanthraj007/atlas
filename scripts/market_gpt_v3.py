@@ -82,7 +82,7 @@ def main(smoke: bool = False) -> None:
             for k in keep
         }
     else:
-        news = news_inputs(rd, dates, progress=log)
+        news = news_inputs(rd, dates, progress=log, extra_roots=("data/news_midsmall",))
     panel = build_panel(rd.bars, rd.benchmark, dates, news, EMB_DIM)
     rows = sample_index(panel, stride=1, membership=rd.membership)
     pre = sample_index(panel, stride=5, membership=rd.membership)
@@ -102,18 +102,24 @@ def main(smoke: bool = False) -> None:
         if smoke
         else GPTConfig(pretrain_epochs=8, patience=2)
     )
-    backbones = {}
-    for name, use_news in (("news", True), ("price", False)):
-        path = out / f"backbone_{name}.pt"
-        m = MarketGPT(EMB_DIM)
-        if path.exists():
-            m.load_state_dict(torch.load(path, map_location="cpu"))
-            log(f"loaded pretrained {name} backbone")
-        else:
-            log(f"pretraining {name} backbone on {len(pre_tr):,} windows")
-            m = fit_stage(m, "pretrain", panel, pre_tr, pre_va, gcfg, use_news, progress=log)
-            torch.save(m.state_dict(), path)
-        backbones[name] = m.cpu()
+    backbones: dict[tuple[str, int], MarketGPT] = {}
+
+    def backbone(kind: str, width: int) -> MarketGPT:
+        """Pretrained backbone for this input set and width (trained once, then cached)."""
+        if (kind, width) not in backbones:
+            path = out / f"backbone_{kind}_w{width}.pt"
+            m = MarketGPT(EMB_DIM, width=width)
+            if path.exists():
+                m.load_state_dict(torch.load(path, map_location="cpu"))
+                log(f"loaded pretrained {kind} backbone (width {width})")
+            else:
+                log(f"pretraining {kind} backbone (width {width}) on {len(pre_tr):,} windows")
+                m = fit_stage(
+                    m, "pretrain", panel, pre_tr, pre_va, gcfg, kind == "news", progress=log
+                )
+                torch.save(m.state_dict(), path)
+            backbones[(kind, width)] = m.cpu()
+        return backbones[(kind, width)]
 
     def rcfg(**kw) -> RankConfig:
         base = (
@@ -123,15 +129,15 @@ def main(smoke: bool = False) -> None:
         )
         return RankConfig(**{**base, **kw})
 
-    def trained(tag: str, backbone: str, refit: str, cfg: RankConfig) -> ScoreModel:
+    def trained(tag: str, kind: str, width: int, refit: str, cfg: RankConfig) -> ScoreModel:
         path = out / f"{tag}.pt"
-        m = ScoreModel(copy.deepcopy(backbones[backbone]))
+        m = ScoreModel(copy.deepcopy(backbone(kind, width)))
         if path.exists():
             m.load_state_dict(torch.load(path, map_location="cpu"))
             return m.to(device()).eval()
         tr, va = split(rows, REFITS[refit])
         log(f"fine-tuning {tag}: {len(tr):,} training rows, {va['date'].nunique()} val dates")
-        m = fit_ranker(m, panel, tr, va, cfg, backbone == "news", progress=log)
+        m = fit_ranker(m, panel, tr, va, cfg, kind == "news", progress=log)
         torch.save(m.state_dict(), path)
         (out / f"{tag}.json").write_text(json.dumps({"history": cfg.history}))
         return m
@@ -139,16 +145,35 @@ def main(smoke: bool = False) -> None:
     def best_val(tag: str) -> float:
         return max(h[2] for h in json.loads((out / f"{tag}.json").read_text())["history"])
 
-    # ---- tuning on 2023 only (refit A, seed 0) ----
-    for loss in ("rank", "classify"):
-        trained(f"tune_{loss}_lr3e-4", "news", "A", rcfg(loss=loss, lr=3e-4))
-    loss = max(("rank", "classify"), key=lambda k: best_val(f"tune_{k}_lr3e-4"))
-    trained(f"tune_{loss}_lr1e-4", "news", "A", rcfg(loss=loss, lr=1e-4))
-    lr = max((3e-4, 1e-4), key=lambda v: best_val(f"tune_{loss}_lr{v:.0e}".replace("e-0", "e-")))
-    choice = {k: best_val(f"tune_{k}_lr3e-4") for k in ("rank", "classify")}
-    log(f"2023 IC by loss: {choice}; chose loss={loss}, lr={lr:g}")
-    (out / "choice.json").write_text(json.dumps({"loss": loss, "lr": lr, "val_ic": choice}))
-    chosen = f"tune_{loss}_lr{lr:.0e}".replace("e-0", "e-")
+    # ---- tuning on 2023 only (refit A, seed 0): loss, then width, then learning rate ----
+    def tune(loss: str, width: int, lr: float) -> str:
+        t = f"tune_{loss}_w{width}_lr{lr:.0e}".replace("e-0", "e-")
+        trained(t, "news", width, "A", rcfg(loss=loss, lr=lr))
+        return t
+
+    by_loss = {k: best_val(tune(k, 128, 3e-4)) for k in ("rank", "classify")}
+    loss = max(by_loss, key=by_loss.get)
+    by_width = {w: best_val(tune(loss, w, 3e-4)) for w in (128, 256)}
+    width = max(by_width, key=by_width.get)
+    by_lr = {v: best_val(tune(loss, width, v)) for v in (3e-4, 1e-4)}
+    lr = max(by_lr, key=by_lr.get)
+    log(
+        f"2023 IC by loss {by_loss}, by width {by_width}, by lr {by_lr} -> "
+        f"loss={loss}, width={width}, lr={lr:g}"
+    )
+    (out / "choice.json").write_text(
+        json.dumps(
+            {
+                "loss": loss,
+                "width": width,
+                "lr": lr,
+                "val_ic_by_loss": by_loss,
+                "val_ic_by_width": by_width,
+                "val_ic_by_lr": {str(k): v for k, v in by_lr.items()},
+            }
+        )
+    )
+    chosen = tune(loss, width, lr)
     if not (out / "news_A_s0.pt").exists():  # identical config and seed: reuse, don't retrain
         for ext in (".pt", ".json"):
             (out / f"news_A_s0{ext}").write_bytes((out / f"{chosen}{ext}").read_bytes())
@@ -159,8 +184,10 @@ def main(smoke: bool = False) -> None:
 
     for refit in REFITS:
         for seed in SEEDS:
-            trained(tag("news", refit, seed), "news", refit, rcfg(loss=loss, lr=lr, seed=seed))
-        trained(tag("price", refit, 0), "price", refit, rcfg(loss=loss, lr=lr, seed=0))
+            trained(
+                tag("news", refit, seed), "news", width, refit, rcfg(loss=loss, lr=lr, seed=seed)
+            )
+        trained(tag("price", refit, 0), "price", width, refit, rcfg(loss=loss, lr=lr, seed=0))
     log("all models trained")
     if smoke:
         log("smoke run complete (no test metrics computed)")
@@ -183,7 +210,7 @@ def main(smoke: bool = False) -> None:
             ix = np.where(m["refit"] == refit)[0]
             part = m.iloc[ix]
             for s in seeds:
-                model = trained(tag(kind, refit, s), kind, refit, RankConfig())
+                model = trained(tag(kind, refit, s), kind, width, refit, RankConfig())
                 total[ix] += predict_scores(model, panel, part, kind == "news")
         return zscore(total / len(seeds))
 

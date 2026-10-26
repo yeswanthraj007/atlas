@@ -107,10 +107,10 @@ def eval_vol(name: str, m: pd.DataFrame, pred: np.ndarray, har: np.ndarray) -> d
     }
 
 
-def news_inputs(rd, dates: pd.DatetimeIndex, progress=print):
+def news_inputs(rd, dates: pd.DatetimeIndex, progress=print, extra_roots: tuple[str, ...] = ()):
     """Daily mean of reduced, identity-masked news embeddings per stock."""
     syms = [c.split(":")[1] for c in rd.closes.columns]
-    news = load_news()
+    news = load_news(extra_roots=extra_roots)
     rows = explode_by_symbol(news, set(syms))
     rows["d0"] = news_day_index(rows["created_at"], dates)
     rows = rows[rows["d0"] >= 0].reset_index(drop=True)

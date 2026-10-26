@@ -91,3 +91,15 @@ t >= 2.0.
 ## Trial accounting
 Two trials are logged in research/trials.jsonl: the ensemble and the price-only ablation.
 The baseline is logged as a comparison.
+
+## Amendment 1 (2026-10-26, before any v3 result; the run was stopped while still embedding news)
+Made at the user's request, so that v3 does everything the plan promised:
+1. Mid/small-cap news. A separate Alpaca news download for the 1,000 S&P 400/600 names goes
+   to data/news_midsmall. It is merged with the existing news and de-duplicated by article id.
+2. Model size is chosen on 2023, not fixed:
+   - The width-128 backbone first picks the loss (rank vs classify, lr 3e-4).
+   - A width-256 backbone (its own pretraining) is then compared at lr 3e-4.
+   - The better width is tried at lr 1e-4.
+   - Every choice uses refit A, seed 0, and 2023 IC only.
+   - The price-only ablation uses the chosen width.
+Nothing else changes: the success criteria, test, baseline and trial accounting are as above.
