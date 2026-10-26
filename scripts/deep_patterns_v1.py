@@ -202,8 +202,8 @@ def main() -> None:
                 reg.record(
                     SignalRecord(
                         f"deep_{r['model']}",
-                        "direction",
                         "deep price-pattern model",
+                        "direction",
                         "ic_20d",
                         r["ic"],
                         r["ic_t"],
