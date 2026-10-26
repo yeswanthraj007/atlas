@@ -313,3 +313,149 @@ def qlike(log_vol_pred: np.ndarray, log_vol_true: np.ndarray) -> np.ndarray:
     """QLIKE loss on variances (Patton 2011): robust to noise in realised volatility."""
     ratio = np.exp(2 * (log_vol_true - log_vol_pred))
     return ratio - np.log(ratio) - 1.0
+
+
+# --- v3: one score per stock-day, trained to rank stocks within each date -------------
+
+
+class ScoreModel(nn.Module):
+    """MarketGPT backbone + a scalar score from the last day's hidden state."""
+
+    def __init__(self, backbone: MarketGPT) -> None:
+        super().__init__()
+        self.backbone = backbone
+        self.score = nn.Linear(backbone.norm.normalized_shape[0], 1)
+
+    def forward(self, x: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
+        return self.score(self.backbone.hidden(x, e)[:, -1]).squeeze(-1)
+
+
+def gaussian_rank(values: pd.Series, dates: pd.Series) -> np.ndarray:
+    """Cross-sectional rank of each value within its date, mapped to a standard normal."""
+    from scipy.stats import norm
+
+    pct = values.groupby(dates.to_numpy()).rank(pct=True)
+    n = values.groupby(dates.to_numpy()).transform("count")
+    return norm.ppf((pct * n - 0.5) / n).astype(np.float32)
+
+
+def rank_loss(score: torch.Tensor, target: torch.Tensor, groups: int) -> torch.Tensor:
+    """1 - mean Pearson correlation between scores and targets within each date group.
+    `score`/`target` are laid out as `groups` consecutive equal-size blocks."""
+    s = score.view(groups, -1)
+    t = target.view(groups, -1)
+    s = (s - s.mean(1, keepdim=True)) / (s.std(1, keepdim=True, unbiased=False) + 1e-6)
+    t = (t - t.mean(1, keepdim=True)) / (t.std(1, keepdim=True, unbiased=False) + 1e-6)
+    return 1.0 - (s * t).mean()
+
+
+def date_batches(
+    rows: pd.DataFrame,
+    n_samples: int,
+    dates_per_batch: int,
+    per_date: int,
+    rng: np.random.Generator,
+):
+    """Yield row-position arrays: `dates_per_batch` dates x `per_date` stocks each
+    (stocks drawn with replacement when a date has fewer)."""
+    by_date = [np.asarray(ix) for ix in rows.groupby("date").indices.values() if len(ix) >= 2]
+    for _ in range(max(1, n_samples // (dates_per_batch * per_date))):
+        picks = rng.choice(len(by_date), dates_per_batch, replace=False)
+        yield np.concatenate(
+            [rng.choice(by_date[p], per_date, replace=len(by_date[p]) < per_date) for p in picks]
+        )
+
+
+@dataclass
+class RankConfig:
+    loss: str = "rank"  # "rank" (listwise correlation) or "classify" (beats median)
+    lr: float = 3e-4
+    samples_per_epoch: int = 400_000
+    epochs: int = 8
+    patience: int = 2
+    dates_per_batch: int = 8
+    per_date: int = 64
+    warmup_steps: int = 300
+    val_every_nth_date: int = 5
+    seed: int = 0
+    history: list[tuple[int, float, float]] = field(default_factory=list)
+
+
+@torch.no_grad()
+def predict_scores(
+    model: ScoreModel, panel: StockPanel, rows: pd.DataFrame, use_news: bool
+) -> np.ndarray:
+    dev = device()
+    model.eval()
+    out = []
+    for i in range(0, len(rows), 2048):
+        part = rows.iloc[i : i + 2048]
+        x, e, _ = gather(panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news)
+        out.append(model(x.to(dev), e.to(dev)).float().cpu().numpy())
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+def mean_ic(rows: pd.DataFrame, score: np.ndarray) -> float:
+    from scipy.stats import spearmanr
+
+    d = rows.assign(p=score)
+    ic = d.groupby("date").apply(lambda g: spearmanr(g["p"], g["fwd_ret"]).statistic)
+    return float(ic.mean())
+
+
+def fit_ranker(
+    model: ScoreModel,
+    panel: StockPanel,
+    train_rows: pd.DataFrame,
+    val_rows: pd.DataFrame,
+    cfg: RankConfig,
+    use_news: bool,
+    progress=print,
+) -> ScoreModel:
+    """Fine-tune with date-grouped batches; early stopping on mean validation IC."""
+    torch.manual_seed(cfg.seed)
+    rng = np.random.default_rng(cfg.seed)
+    dev = device()
+    model = model.to(dev)
+    tr = train_rows.reset_index(drop=True)
+    tr = tr.assign(rank_target=gaussian_rank(tr["fwd_ret"], tr["date"]))
+    vdates = sorted(val_rows["date"].unique())[:: cfg.val_every_nth_date]
+    va = val_rows[val_rows["date"].isin(vdates)].reset_index(drop=True)
+    batch = cfg.dates_per_batch * cfg.per_date
+    steps = cfg.epochs * max(1, cfg.samples_per_epoch // batch)
+    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.05)
+    sched = _schedule(opt, cfg.warmup_steps, steps)
+    best, best_state, bad = -np.inf, None, 0
+    for epoch in range(cfg.epochs):
+        model.train()
+        tot, n = 0.0, 0
+        for ix in date_batches(tr, cfg.samples_per_epoch, cfg.dates_per_batch, cfg.per_date, rng):
+            part = tr.iloc[ix]
+            x, e, _ = gather(panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news)
+            s = model(x.to(dev), e.to(dev))
+            if cfg.loss == "rank":
+                y = torch.tensor(part["rank_target"].to_numpy(), device=dev)
+                loss = rank_loss(s, y, cfg.dates_per_batch)
+            else:
+                y = torch.tensor(part["target"].to_numpy(), dtype=torch.float32, device=dev)
+                loss = nn.functional.binary_cross_entropy_with_logits(s, y)
+            opt.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            sched.step()
+            tot += float(loss.detach())
+            n += 1
+        vic = mean_ic(va, predict_scores(model, panel, va, use_news))
+        cfg.history.append((epoch, tot / max(n, 1), vic))
+        progress(f"    epoch {epoch}: train loss {tot / max(n, 1):.4f}, validation IC {vic:+.4f}")
+        if vic > best + 1e-4:
+            best, bad = vic, 0
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        else:
+            bad += 1
+            if bad >= cfg.patience:
+                break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model.eval()

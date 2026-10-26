@@ -80,3 +80,55 @@ def test_qlike_is_zero_only_for_perfect_forecast():
     t = np.log(np.array([0.2, 0.3]))
     assert np.allclose(qlike(t, t), 0.0)
     assert (qlike(t + 0.1, t) > 0).all() and (qlike(t - 0.1, t) > 0).all()
+
+
+def test_rank_loss_and_gaussian_rank():
+    from atlas.ml.market_gpt import gaussian_rank, rank_loss
+
+    t = torch.randn(2, 64)
+    assert float(rank_loss(t.flatten(), t.flatten(), 2)) < 1e-4
+    assert abs(float(rank_loss(t.flatten(), -t.flatten(), 2)) - 2.0) < 1e-3
+    v = pd.Series([3.0, 1.0, 2.0, 10.0, 20.0])
+    d = pd.Series(["a", "a", "a", "b", "b"])
+    g = gaussian_rank(v, d)
+    assert g[1] < g[2] < g[0] and g[3] < g[4] and abs(g[2]) < 1e-6
+
+
+def test_date_batches_group_by_date():
+    from atlas.ml.market_gpt import date_batches
+
+    rows = pd.DataFrame({"date": np.repeat(np.arange(10), 5)})
+    b = next(date_batches(rows, 64, 4, 8, np.random.default_rng(0)))
+    assert len(b) == 32
+    per_group = rows["date"].to_numpy()[b].reshape(4, 8)
+    assert (per_group == per_group[:, :1]).all()  # each block is one date
+    assert len(set(per_group[:, 0])) == 4
+
+
+def test_score_model_learns_planted_cross_sectional_signal():
+    from atlas.ml.market_gpt import RankConfig, ScoreModel, fit_ranker, mean_ic, predict_scores
+
+    bars = {f"EQ:{i}": _bars(500, i) for i in range(30)}
+    dates = bars["EQ:0"].index
+    p = build_panel(bars, _bars(500, 99)["close"], dates)
+    rows = sample_index(p, stride=1)
+    rows = rows[rows["fwd_ret"].notna()].reset_index(drop=True)
+    sig = p.price[rows["stock"], rows["end"], 0]  # today's scaled return
+    rows["fwd_ret"] = rows["fwd_ret"] + 0.02 * sig  # planted: today's move continues
+    rows["target"] = rows["fwd_ret"] > rows.groupby("date")["fwd_ret"].transform("median")
+    rows["target"] = rows["target"].astype(float)
+    tr, va = rows[rows["end"] < 400], rows[rows["end"] >= 400]
+    torch.manual_seed(0)
+    m = ScoreModel(MarketGPT(emb_dim=0, width=32, layers=1, heads=2))
+    cfg = RankConfig(
+        samples_per_epoch=6_000,
+        epochs=3,
+        dates_per_batch=4,
+        per_date=16,
+        warmup_steps=10,
+        val_every_nth_date=1,
+    )
+    m = fit_ranker(m, p, tr, va, cfg, use_news=False, progress=lambda _: None)
+    ceiling = mean_ic(va, va["stock"].map(lambda _: 0).to_numpy() + sig[rows["end"] >= 400])
+    got = mean_ic(va, predict_scores(m, p, va, False))
+    assert ceiling > 0.1 and got > 0.7 * ceiling
