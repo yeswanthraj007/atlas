@@ -132,3 +132,15 @@ def test_score_model_learns_planted_cross_sectional_signal():
     ceiling = mean_ic(va, va["stock"].map(lambda _: 0).to_numpy() + sig[rows["end"] >= 400])
     got = mean_ic(va, predict_scores(m, p, va, False))
     assert ceiling > 0.1 and got > 0.7 * ceiling
+
+
+def test_drop_market_hides_only_the_market_input():
+    bars = {"EQ:A": _bars(400, 2), "EQ:B": _bars(400, 3)}
+    p = build_panel(bars, _bars(400, 4)["close"], bars["EQ:A"].index)
+    s, e = np.array([0, 1]), np.array([300, 300])
+    x0, _, _ = gather(p, s, e, False)
+    x1, _, _ = gather(p, s, e, False, drop_market=True)
+    k = PRICE_FEATURES.index("market_ret_z")
+    assert float(x1[:, :, k].abs().sum()) == 0.0 and float(x0[:, :, k].abs().sum()) > 0
+    others = [i for i in range(x0.shape[2]) if i != k]
+    assert torch.equal(x0[:, :, others], x1[:, :, others])

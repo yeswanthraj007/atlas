@@ -153,8 +153,17 @@ def sample_index(
     return df
 
 
-def gather(panel: StockPanel, stocks: np.ndarray, ends: np.ndarray, use_news: bool):
-    """Model inputs for a batch: (price+meta, embeddings, next-day targets)."""
+def gather(
+    panel: StockPanel,
+    stocks: np.ndarray,
+    ends: np.ndarray,
+    use_news: bool,
+    drop_market: bool = False,
+):
+    """Model inputs for a batch: (price+meta, embeddings, next-day targets).
+    drop_market zeroes the market-return input: it is identical for every stock on a date,
+    so its 120-day history fingerprints the date and lets a model memorise which kinds of
+    stocks did well in each historical period."""
     days = ends[:, None] + np.arange(-CONTEXT + 1, 1)[None, :]
     s = stocks[:, None]
     x = np.concatenate([panel.price[s, days], panel.news_meta[s, days]], axis=2)
@@ -162,6 +171,8 @@ def gather(panel: StockPanel, stocks: np.ndarray, ends: np.ndarray, use_news: bo
     if not use_news:
         x[:, :, len(PRICE_FEATURES) :] = 0.0
         e = np.zeros_like(e)
+    if drop_market:
+        x[:, :, PRICE_FEATURES.index("market_ret_z")] = 0.0
     y_next = panel.next_ret_z[s, days]
     return torch.from_numpy(x), torch.from_numpy(e), torch.from_numpy(y_next)
 
@@ -321,13 +332,14 @@ def qlike(log_vol_pred: np.ndarray, log_vol_true: np.ndarray) -> np.ndarray:
 class ScoreModel(nn.Module):
     """MarketGPT backbone + a scalar score from the last day's hidden state."""
 
-    def __init__(self, backbone: MarketGPT) -> None:
+    def __init__(self, backbone: MarketGPT, dropout: float = 0.0) -> None:
         super().__init__()
         self.backbone = backbone
+        self.drop = nn.Dropout(dropout)
         self.score = nn.Linear(backbone.norm.normalized_shape[0], 1)
 
     def forward(self, x: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
-        return self.score(self.backbone.hidden(x, e)[:, -1]).squeeze(-1)
+        return self.score(self.drop(self.backbone.hidden(x, e)[:, -1])).squeeze(-1)
 
 
 def gaussian_rank(values: pd.Series, dates: pd.Series) -> np.ndarray:
@@ -377,20 +389,29 @@ class RankConfig:
     per_date: int = 64
     warmup_steps: int = 300
     val_every_nth_date: int = 5
+    drop_market: bool = False  # hide the date-fingerprinting market input
+    stride: int = 1  # >1: each epoch uses every `stride`-th day (random offset), less overlap
+    weight_decay: float = 0.05
     seed: int = 0
     history: list[tuple[int, float, float]] = field(default_factory=list)
 
 
 @torch.no_grad()
 def predict_scores(
-    model: ScoreModel, panel: StockPanel, rows: pd.DataFrame, use_news: bool
+    model: ScoreModel,
+    panel: StockPanel,
+    rows: pd.DataFrame,
+    use_news: bool,
+    drop_market: bool = False,
 ) -> np.ndarray:
     dev = device()
     model.eval()
     out = []
     for i in range(0, len(rows), 2048):
         part = rows.iloc[i : i + 2048]
-        x, e, _ = gather(panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news)
+        x, e, _ = gather(
+            panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news, drop_market
+        )
         out.append(model(x.to(dev), e.to(dev)).float().cpu().numpy())
     return np.concatenate(out) if out else np.zeros(0)
 
@@ -423,15 +444,20 @@ def fit_ranker(
     va = val_rows[val_rows["date"].isin(vdates)].reset_index(drop=True)
     batch = cfg.dates_per_batch * cfg.per_date
     steps = cfg.epochs * max(1, cfg.samples_per_epoch // batch)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.05)
+    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     sched = _schedule(opt, cfg.warmup_steps, steps)
     best, best_state, bad = -np.inf, None, 0
     for epoch in range(cfg.epochs):
         model.train()
         tot, n = 0.0, 0
-        for ix in date_batches(tr, cfg.samples_per_epoch, cfg.dates_per_batch, cfg.per_date, rng):
-            part = tr.iloc[ix]
-            x, e, _ = gather(panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news)
+        ep = tr
+        if cfg.stride > 1:  # a fresh random offset each epoch: all days used, less overlap
+            ep = tr[(tr["end"] + int(rng.integers(cfg.stride))) % cfg.stride == 0]
+        for ix in date_batches(ep, cfg.samples_per_epoch, cfg.dates_per_batch, cfg.per_date, rng):
+            part = ep.iloc[ix]
+            x, e, _ = gather(
+                panel, part["stock"].to_numpy(), part["end"].to_numpy(), use_news, cfg.drop_market
+            )
             s = model(x.to(dev), e.to(dev))
             if cfg.loss == "rank":
                 y = torch.tensor(part["rank_target"].to_numpy(), device=dev)
@@ -446,7 +472,7 @@ def fit_ranker(
             sched.step()
             tot += float(loss.detach())
             n += 1
-        vic = mean_ic(va, predict_scores(model, panel, va, use_news))
+        vic = mean_ic(va, predict_scores(model, panel, va, use_news, cfg.drop_market))
         cfg.history.append((epoch, tot / max(n, 1), vic))
         progress(f"    epoch {epoch}: train loss {tot / max(n, 1):.4f}, validation IC {vic:+.4f}")
         if vic > best + 1e-4:

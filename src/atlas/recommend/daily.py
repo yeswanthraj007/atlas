@@ -23,6 +23,7 @@ from atlas.marketdata.store import BarStore
 from atlas.ml.models import RidgeRanker
 from atlas.ml.news_model import explode_by_symbol
 from atlas.ml.volatility import build_vol_dataset, vol_feature_columns
+from atlas.recommend.details import earnings_calendar, ticker_details, tone_model
 from atlas.recommend.engine import Registry, Watchlist, build_watchlist
 from atlas.research import ResearchData, load_research_data
 
@@ -123,6 +124,8 @@ def build_daily(session: str, refresh: bool = True, top: int = 10, progress=prin
     earn = earnings_factor_frames(items_for(load_facts(), symbols), rd.closes.index)
     days_since = earn["days_since_filing"].iloc[-1]
     days_since.index = days_since.index.str.replace("EQ:", "")
+    announced = {k: v[0] for k, v in earnings_calendar(as_of).items()}  # 8-K results dates
+    days_since = days_since.where(~days_since.index.isin(announced), pd.Series(announced))
     ret_1m = rd.closes.iloc[-1] / rd.closes.iloc[-22] - 1
     context = {
         "news_today": counts.astype(float),
@@ -150,6 +153,14 @@ def build_daily(session: str, refresh: bool = True, top: int = 10, progress=prin
             if k in set(wl.risk_alerts.index[:top]) or k in set(wl.picks.index[:top])
         },
         "most_news": counts.sort_values(ascending=False).head(top).to_dict(),
+        "details": ticker_details(
+            rd,
+            list(wl.risk_alerts.index[:top]),
+            vol,
+            days_since,
+            as_of,
+            tone_model(rd, progress),
+        ),
         "registry": {
             n: {
                 "validated": s.validated,
