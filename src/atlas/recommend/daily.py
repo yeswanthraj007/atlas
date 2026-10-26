@@ -25,6 +25,7 @@ from atlas.ml.news_model import explode_by_symbol
 from atlas.ml.volatility import build_vol_dataset, vol_feature_columns
 from atlas.recommend.details import earnings_calendar, ticker_details, tone_model
 from atlas.recommend.engine import Registry, Watchlist, build_watchlist
+from atlas.recommend.social_context import social_context
 from atlas.research import ResearchData, load_research_data
 
 OUT = Path("data/reports/watchlist")
@@ -153,6 +154,7 @@ def build_daily(session: str, refresh: bool = True, top: int = 10, progress=prin
             if k in set(wl.risk_alerts.index[:top]) or k in set(wl.picks.index[:top])
         },
         "most_news": counts.sort_values(ascending=False).head(top).to_dict(),
+        "social": social_context(list(wl.risk_alerts.index[:top]), set(symbols), as_of, progress),
         "details": ticker_details(
             rd,
             list(wl.risk_alerts.index[:top]),
