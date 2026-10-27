@@ -125,3 +125,15 @@ Overlap and regularisation are unchanged (neither helped). The tuning run made u
 setup is archived, not reused. The loss, width and learning-rate choices are re-made under
 the new setup, as in Amendment 1. Success criteria, test, baseline and trial accounting are
 unchanged.
+
+## Amendment 3 (2026-10-26 23:30, before the frozen test is opened): descriptive metrics
+Added at the user's request so that "accuracy" is reported in the forms that matter for a
+portfolio. These are reported only. They do NOT change the success criteria or the verdict.
+They are computed by a separate script from the saved, frozen ensemble on the same monthly
+test dates:
+1. Monthly win rate: the share of test months in which the net top-minus-bottom decile
+   spread (tau 0.5) is positive, with a binomial p-value against 50%.
+2. Confident-call accuracy: beats-median accuracy for the model's top and bottom 5% and 10%
+   of each month, compared with all stocks.
+3. Long-only check: the share of months in which the top decile beats the equal-weight
+   S&P 1500 average.
