@@ -65,3 +65,23 @@ on new dates and a new input for Chronos volatility.
    reported.
 4. ARMA(1,1) parameters come from statsmodels ARIMA (the constant is the process mean);
    GARCH(1,1) from arch on the ARMA residuals, zero mean.
+
+## Amendment 2 (2026-11-07, before any shootout result): the ensemble stage
+Requested by the user: combine the best models. To avoid choosing winners from the data that
+scores them, the 2024 test dates (before 2025-01-01) are the SELECTION window and the dates
+from 2025-01-01 on are the EVALUATION window. All models stay frozen. Nothing in the
+evaluation window is used to choose or calibrate anything.
+- Returns (R): z-score each model's forecast within each date. Rank the five by mean IC in the
+  selection window. ENS-TOP3 = mean z of the top three; ENS-ALL = mean z of all five. No
+  sign flipping, no weights.
+- Volatility (V): per model, fit log realised vol = a + b x (its log-vol forecast) by OLS on
+  the selection window; use the calibrated forecasts in the evaluation window. Rank by the
+  selection-window QLIKE of the calibrated forecast. ENS-TOP3 and ENS-ALL = the mean of
+  calibrated forecasts. HAR is calibrated the same way and is the baseline (stricter than
+  the uncalibrated HAR).
+- Reported on the evaluation window: each single model, both ensembles, the best single model as
+  chosen in the selection window, and the baselines.
+- Ensemble "beats the best single model" if its paired per-date difference has t >= 2.0.
+  "Useful" (as above): beats its baseline with t >= 3.0.
+- Two more trials (ENS-TOP3, ENS-ALL) are logged. The single-model shootout still uses all 35
+  dates, exactly as pre-registered above.
