@@ -273,6 +273,15 @@ def main(smoke: bool) -> None:
     ev = te[keep].reset_index(drop=True)
     log(f"EVALUATION SET: {len(ev):,} (date, stock) pairs over {ev['date'].nunique()} dates")
     har_ev = base_har[keep]
+    saved = ev[["date", "instrument", "fwd_ret", "fwd_log_vol"]].copy()
+    for m in MODELS:
+        saved[f"ret_{m}"], saved[f"vol_{m}"] = pred_ret[m][keep], pred_vol[m][keep]
+    saved["ret_ridge"], saved["vol_har"], saved["vol_naive"] = (
+        base_ret[keep],
+        har_ev,
+        base_naive[keep],
+    )
+    saved.to_parquet(out_dir / "predictions.parquet")  # the ensemble stage reads this
 
     rets = {m: score_return_task(ev, pred_ret[m][keep]) for m in MODELS}
     rets["ridge (baseline)"] = score_return_task(ev, base_ret[keep])
