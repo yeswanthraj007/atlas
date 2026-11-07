@@ -8,12 +8,14 @@ signals were allowed to rank and why.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
 
 from atlas.factors.earnings import earnings_factor_frames
 from atlas.factors.fundamental import fundamental_factor_frames
@@ -41,6 +43,17 @@ class DailyResult:
     json_path: Path
 
 
+def with_retries(fn, tries: int = 4, wait: float = 20.0, sleep=time.sleep):
+    """Call fn(); on a network error wait (20 s, 40 s, 80 s ...) and try again."""
+    for attempt in range(tries):
+        try:
+            return fn()
+        except (requests.exceptions.RequestException, OSError):
+            if attempt == tries - 1:
+                raise
+            sleep(wait * 2**attempt)
+
+
 def refresh_market_data(symbols: list[str], store: BarStore, progress=print) -> None:
     """Bring bars up to date. Adjusted histories are re-downloaded whole (a new split or
     dividend rewrites them); raw bars are appended."""
@@ -53,7 +66,9 @@ def refresh_market_data(symbols: list[str], store: BarStore, progress=print) -> 
         (Adjustment.SPLIT, datetime(2016, 1, 1, tzinfo=UTC)),
         (Adjustment.RAW, end - timedelta(days=30)),
     ]:
-        bars = provider.get_bars(symbols, start, end, Timeframe.DAY, adj)
+        bars = with_retries(
+            lambda adj=adj, start=start: provider.get_bars(symbols, start, end, Timeframe.DAY, adj)
+        )
         for sym, df in bars.items():
             store.write(sym, df, Timeframe.DAY, adj)
         progress(f"  refreshed {len(bars)} symbols ({adj.value})")

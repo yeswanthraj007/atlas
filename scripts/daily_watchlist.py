@@ -15,6 +15,7 @@ import os
 from dotenv import load_dotenv
 
 from atlas.lock import single_instance
+from atlas.net import install_default_timeout
 from atlas.notify.telegram import TelegramNotConfiguredError, send
 from atlas.recommend.daily import build_daily, telegram_summary
 
@@ -26,6 +27,7 @@ def main() -> None:
     ap.add_argument("--no-notify", action="store_true")
     args = ap.parse_args()
     load_dotenv(".env")
+    install_default_timeout()
     with single_instance("daily_watchlist"):
         res = build_daily(args.session, refresh=not args.no_refresh)
         print(f"wrote {res.markdown_path} and {res.json_path}")
