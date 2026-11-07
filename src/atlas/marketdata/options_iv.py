@@ -219,16 +219,24 @@ class OptionIVRecorder:
         raise RuntimeError(f"option chain request failed repeatedly for {symbol}")
 
     def record(
-        self, symbols: Iterable[str], progress: Callable[[str], None] = print
+        self,
+        symbols: Iterable[str],
+        progress: Callable[[str], None] = print,
+        aliases: dict[str, str] | None = None,
     ) -> tuple[Path | None, list[str]]:
+        """`symbols` are option roots (what the chain request needs). `aliases` maps a root to
+        the stock's own ticker where they differ (option root BRKB, stock BRK.B): the stock price
+        is looked up under the ticker, and rows are saved under the ticker."""
         symbols = list(symbols)
-        spots = self.spots(symbols)
+        alias = aliases or {}
+        raw = self.spots([alias.get(s, s) for s in symbols])
+        spots = {s: raw[alias.get(s, s)] for s in symbols if alias.get(s, s) in raw}
         if not spots:
             return None, symbols
         asof = max(d for _, d in spots.values())  # the latest trading day in the data
         path = self.root / f"{asof:%Y-%m-%d}.parquet"
         done = set(pd.read_parquet(path, columns=["symbol"])["symbol"]) if path.exists() else set()
-        todo = [s for s in symbols if s in spots and s not in done]
+        todo = [s for s in symbols if s in spots and alias.get(s, s) not in done]
         progress(
             f"  as of {asof}: {len(spots)} priced, {len(done)} already recorded, {len(todo)} to do"
         )
@@ -246,7 +254,7 @@ class OptionIVRecorder:
             if not r:
                 empty += 1
                 r = [{"expiry": pd.NaT, "dte": 0, "spot": spot}]  # marks "no usable options"
-            rows += [{"asof": pd.Timestamp(asof), "symbol": s, **x} for x in r]
+            rows += [{"asof": pd.Timestamp(asof), "symbol": alias.get(s, s), **x} for x in r]
             if n % 100 == 0:
                 progress(f"  {n}/{len(todo)} underlyings ({empty} without usable options)")
                 self._save(path, rows)

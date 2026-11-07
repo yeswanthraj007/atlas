@@ -27,9 +27,10 @@ def main() -> None:
     load_dotenv(".env")
     install_default_timeout()
     symbols = args.symbols or Path(args.universe).read_text().split()
-    symbols = [s.replace(".", "") for s in symbols]  # option roots drop the dot (BRK.B -> BRKB)
+    aliases = {s.replace(".", ""): s for s in symbols if "." in s}  # option root BRKB -> BRK.B
+    symbols = [s.replace(".", "") for s in symbols]
     with single_instance("record_option_iv"):
-        path, failed = OptionIVRecorder.from_settings().record(symbols)
+        path, failed = OptionIVRecorder.from_settings().record(symbols, aliases=aliases)
     if path is None:
         raise SystemExit("no prices returned; nothing recorded")
     iv = load_iv(path.parent)

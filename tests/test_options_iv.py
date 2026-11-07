@@ -94,3 +94,24 @@ def test_recorder_writes_resumes_and_marks_symbols_without_options(tmp_path):
     assert set(raw["symbol"]) == {"AAA", "BBB"}
     rec.record(["AAA", "BBB"], progress=lambda _: None)  # resume: nothing re-requested
     assert opts.calls == ["AAA", "BBB"]
+
+
+def test_share_class_tickers_use_the_stock_symbol_for_price_and_the_root_for_the_chain(tmp_path):
+    class Stocks:
+        def get_stock_snapshot(self, req):
+            ts = pd.Timestamp("2026-11-02 21:00", tz="UTC")
+            return {
+                s: NS(latest_trade=NS(price=100.0, timestamp=ts), daily_bar=None)
+                for s in req.symbol_or_symbols
+                if s == "BRK.B"
+            }  # only the dotted ticker is priced
+
+    chain = {
+        "BRKB261116C00100000": snap(4.9, 5.1, 0.4, 0.5),
+        "BRKB261116P00100000": snap(4.4, 4.6, 0.4, -0.5),
+    }
+    opts = FakeOptions({"BRKB": chain})
+    rec = OptionIVRecorder(opts, Stocks(), min_interval=0, root=tmp_path, sleep=lambda _: None)
+    _, failed = rec.record(["BRKB"], progress=lambda _: None, aliases={"BRKB": "BRK.B"})
+    assert failed == [] and opts.calls == ["BRKB"]
+    assert list(load_iv(tmp_path)["symbol"]) == ["BRK.B"]
