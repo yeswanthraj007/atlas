@@ -21,6 +21,8 @@ dependencies = [
     "chronos-forecasting>=2.3.2",
     "timesfm[torch]>=3.0.2",
     "arch>=8.0.0",
+    "sentencepiece>=0.2.3",
+    "protobuf>=7.36.2",
 ]
 
 [project.scripts]
