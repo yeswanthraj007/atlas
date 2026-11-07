@@ -52,3 +52,16 @@ Five trials (one per model) are logged in research/trials.jsonl with both tasks'
 Disclosure: the 2024-2026 window was used by earlier experiments on related targets
 (v2 and v3 forecasters, Chronos). Chronos and MarketGPT results here are new evaluations
 on new dates and a new input for Chronos volatility.
+
+## Amendment 1 (2026-11-07, before any shootout result or code run)
+1. Horizon is 20 trading days everywhere, not 21. The frozen MarketGPT models were trained on
+   20-day targets, and using one horizon for all models keeps the comparison fair. Test dates
+   are every 20th trading day (non-overlapping outcomes) from 2024-01-02.
+2. Volatility input for Chronos and TimesFM: the series of log 20-day realised volatility
+   (the same quantity being forecast; its value 20 steps ahead is the target), context 252
+   days, take step 20 of the median forecast. It replaces the 5-day series in the text above.
+3. Evaluation set: all (date, stock) pairs for which every model has a forecast (120-day
+   window complete, at least 252 days of history, ARIMA-GARCH fit succeeded). The count is
+   reported.
+4. ARMA(1,1) parameters come from statsmodels ARIMA (the constant is the process mean);
+   GARCH(1,1) from arch on the ARMA residuals, zero mean.
