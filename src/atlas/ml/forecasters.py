@@ -240,3 +240,30 @@ def score_vol_task(df: pd.DataFrame, pred_log_vol: np.ndarray, har_log_vol: np.n
         "dm_t_vs_har": t_stat(diff),  # > 0: better than HAR
         "accuracy": float(acc.mean()),
     }
+
+
+def arma_garch_for_stock(
+    r_pct: np.ndarray,
+    cut: int,
+    positions: np.ndarray,
+    min_obs: int = 500,
+    max_gap_frac: float = 0.05,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Fit on a stock's real returns up to `cut` and forecast at `positions` (day indexes
+    into `r_pct`, which may start with NaN before the stock was listed). None if there are
+    fewer than `min_obs` real observations before `cut` or too many internal gaps.
+    Never pads pre-listing history with zeros."""
+    r = np.asarray(r_pct, float)
+    finite = np.where(np.isfinite(r))[0]
+    if len(finite) == 0:
+        return None
+    first = int(finite[0])
+    r, cut, pos = r[first:], cut - first, np.asarray(positions) - first
+    if cut + 1 < min_obs or (pos < 0).any():
+        return None
+    window = r[: cut + 1]
+    if np.isnan(window).mean() > max_gap_frac:
+        return None
+    r = np.nan_to_num(r, nan=0.0)  # rare internal gaps only
+    m = fit_arma_garch(r[: cut + 1])
+    return None if m is None else arma_garch_forecast(m, r, pos)

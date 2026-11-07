@@ -93,3 +93,23 @@ def test_qlike_and_return_scoring():
     df = pd.DataFrame({"date": dates, "fwd_ret": fwd})
     s = score_return_task(df, fwd)  # perfect ranking
     assert abs(s["ic"] - 1.0) < 1e-9 and s["accuracy"] == 1.0
+
+
+def test_stock_fit_never_pads_missing_history_with_zeros():
+    from atlas.ml.forecasters import arma_garch_for_stock
+
+    r = _simulate(3000, seed=5)
+    full = arma_garch_for_stock(r, cut=2500, positions=np.array([2600, 2700]))
+    assert full is not None and np.isfinite(full[1]).all()
+    # a stock listed late: 2400 days of NaN, then only 600 real days
+    late = np.concatenate([np.full(2400, np.nan), r[:600]])
+    ok = arma_garch_for_stock(late, cut=2899, positions=np.array([2950]))
+    assert ok is not None  # 500 real days before the cut: allowed
+    too_short = np.concatenate([np.full(2900, np.nan), r[:100]])
+    assert arma_garch_for_stock(too_short, cut=2950, positions=np.array([2990])) is None
+    # forecasts do not depend on what lies before the first real observation
+    other = late.copy()
+    other[:2400] = np.nan
+    a = arma_garch_for_stock(late, cut=2899, positions=np.array([2950]))
+    b = arma_garch_for_stock(other, cut=2899, positions=np.array([2950]))
+    np.testing.assert_allclose(a[1], b[1])

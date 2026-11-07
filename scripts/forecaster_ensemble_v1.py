@@ -6,6 +6,7 @@ research/preregistered/2026-11-07-forecaster-shootout-v1.md). Reads the saved pr
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -20,7 +21,9 @@ SPLIT = pd.Timestamp("2025-01-01", tz="UTC")
 
 
 def main() -> None:
-    df = pd.read_parquet(Path("data/reports/shootout_v1/predictions.parquet"))
+    path = sys.argv[sys.argv.index("--predictions") + 1] if "--predictions" in sys.argv else None
+    note = " (after the ARIMA-GARCH fix)" if path else ""
+    df = pd.read_parquet(Path(path or "data/reports/shootout_v1/predictions.parquet"))
     df["date"] = pd.to_datetime(df["date"], utc=True)
     r, v = returns_stage(df, MODELS, SPLIT), vol_stage(df, MODELS, SPLIT)
     print(f"selection window: dates before {SPLIT.date()}; evaluation: {r['eval_dates']} dates, "
@@ -64,7 +67,7 @@ def main() -> None:
             f"shootout_{name.lower()}", "promoted" if (ur or uv) else "rejected_holdout",
             f"{name} of the five forecasters beats the baselines and the best single model",
             "forecast combination; members chosen on 2024 only", metrics, True, __file__,
-            notes=f"pre-registered in {PREREG} (Amendment 2)")  # fmt: skip
+            notes=f"pre-registered in {PREREG} (Amendment 2){note}")  # fmt: skip
         print(f"  -> trial #{t.trial_id}")
         if uv:
             reg.record(SignalRecord(f"shootout_{name.lower()}_vol", f"{name} 20-day volatility",
