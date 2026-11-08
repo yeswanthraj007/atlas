@@ -111,3 +111,44 @@ def test_dataset_links_picks_quarters_and_keeps_every_path():
             '<a href="/files/structureddata/data/insider-transactions-data-sets/2010q1_form345.zip">z</a>')  # fmt: skip
     links = dataset_links(html)
     assert list(links) == ["2016q1", "2026q2"]
+
+
+def test_parse_quarter_tolerates_older_files_without_newer_columns():
+    sub = pd.DataFrame(
+        {
+            "ACCESSION_NUMBER": ["a1"],
+            "FILING_DATE": ["05-JAN-2016"],
+            "DOCUMENT_TYPE": ["4"],
+            "ISSUERCIK": ["1"],
+            "ISSUERTRADINGSYMBOL": ["AAA"],
+        }
+    )  # no AFF10B5ONE column
+    tr = pd.DataFrame(
+        {
+            "ACCESSION_NUMBER": ["a1"],
+            "TRANS_DATE": ["04-JAN-2016"],
+            "TRANS_CODE": ["P"],
+            "TRANS_SHARES": ["10"],
+            "TRANS_PRICEPERSHARE": ["20"],
+            "TRANS_ACQUIRED_DISP_CD": ["A"],
+        }
+    )
+    own = pd.DataFrame(
+        {
+            "ACCESSION_NUMBER": ["a1"],
+            "RPTOWNERCIK": ["7"],
+            "RPTOWNERNAME": ["X"],
+            "RPTOWNER_RELATIONSHIP": ["Officer"],
+            "RPTOWNER_TITLE": ["CEO"],
+        }
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, df in (
+            ("SUBMISSION.tsv", sub),
+            ("NONDERIV_TRANS.tsv", tr),
+            ("REPORTINGOWNER.tsv", own),
+        ):
+            z.writestr(name, df.to_csv(sep="\t", index=False))
+    out = parse_quarter(buf.getvalue())
+    assert len(out) == 1 and not bool(out.iloc[0]["aff10b5one"]) and out.iloc[0]["value"] == 200.0

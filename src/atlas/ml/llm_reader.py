@@ -52,10 +52,10 @@ def mask_company(text: str, names: list[str], ticker: str) -> str:
     return out
 
 
-def prepare_text(raw: str, names: list[str], ticker: str) -> str:
+def prepare_text(raw: str, names: list[str], ticker: str, max_chars: int = MAX_CHARS) -> str:
     body = re.sub(r"[ \t]+", " ", strip_header(raw))
     body = re.sub(r"\n{2,}", "\n", body)
-    return mask_company(body[: MAX_CHARS + 400], names, ticker)[:MAX_CHARS]
+    return mask_company(body[: max_chars + 400], names, ticker)[:max_chars]
 
 
 def tokenize(texts: list[str], tok) -> tuple[np.ndarray, np.ndarray]:

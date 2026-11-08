@@ -21,3 +21,19 @@ launchctl bootout gui/$(id -u)/local.atlas.record-option-iv      # stop and remo
 ```
 Data caveat: Alpaca's free plan serves the "indicative" option feed, not live exchange quotes;
 some implied volatilities are unreliable (for example very short-dated at-the-money options).
+
+## Frontier-LLM forward test (pre-registered 2026-11-07)
+
+Rules: `research/preregistered/2026-11-07-llm-forward-test-v1.md`. Nothing here is scheduled yet.
+
+- Needs `ANTHROPIC_API_KEY` in `.env` (typed by the owner; never committed). Without it the runner exits.
+- `uv run python scripts/llm_forward_run.py` pulls new S&P 1500 earnings releases, predicts those whose
+  reaction session has not started, appends to `data/llm_forward/predictions.jsonl` and writes the day's
+  SHA-256 digest to `research/forward/hashes/<date>.txt`. Commit and push the digest the same day: the git
+  timestamp is the external record. Start date 2026-11-08; monthly spend cap $75.
+- Plumbing check without cost: `--dry-run --ignore-start --pretend-fresh --since-days 6 --limit 40`.
+- Intended cadence once approved: 08:45 ET and 16:45 ET on weekdays (before the open, after the close).
+- `uv run python scripts/llm_forward_score.py` refreshes nothing; refresh S&P 1500 bars first. It scores only
+  at 600, 1,500 and 3,000 complete 20-day outcomes (state in `data/llm_forward/checkpoints.json`) and logs one
+  trial per checkpoint. `--dry-run --force` checks the plumbing.
+- Never edit the predictions file or the digests, never change `prompt.py` (its SHA is stored per row).

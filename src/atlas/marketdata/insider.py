@@ -34,7 +34,11 @@ def dataset_links(page_html: str, first: str = "2013q1") -> dict[str, list[str]]
 
 
 def _read(z: zipfile.ZipFile, name: str, cols: list[str]) -> pd.DataFrame:
-    return pd.read_csv(z.open(name), sep="\t", dtype=str, usecols=cols, on_bad_lines="skip")
+    """Read the wanted columns; older quarters lack some (e.g. AFF10B5ONE before 2023)."""
+    df = pd.read_csv(
+        z.open(name), sep="\t", dtype=str, usecols=lambda c: c in cols, on_bad_lines="skip"
+    )
+    return df.reindex(columns=cols)
 
 
 def parse_quarter(raw_zip: bytes) -> pd.DataFrame:
