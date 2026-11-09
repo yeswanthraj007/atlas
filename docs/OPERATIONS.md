@@ -37,3 +37,8 @@ Rules: `research/preregistered/2026-11-07-llm-forward-test-v1.md`. Nothing here 
   at 600, 1,500 and 3,000 complete 20-day outcomes (state in `data/llm_forward/checkpoints.json`) and logs one
   trial per checkpoint. `--dry-run --force` checks the plumbing.
 - Never edit the predictions file or the digests, never change `prompt.py` (its SHA is stored per row).
+
+Scheduled (approved 2026-11-09): `~/Library/LaunchAgents/local.atlas.llm-forward.plist` runs
+`scripts/run_llm_forward.sh` Mon-Fri at 05:45 and 13:45 Pacific (08:45 and 16:45 ET). The wrapper predicts,
+then commits and pushes only `research/forward/hashes`. Log: `data/logs/llm_forward.log`. Stop it with
+`launchctl bootout gui/$(id -u)/local.atlas.llm-forward`. The Mac must be plugged in and awake.
