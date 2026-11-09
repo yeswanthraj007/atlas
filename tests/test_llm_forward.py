@@ -87,7 +87,7 @@ class _Api:
 
     def create(self, **kw):
         self.calls += 1
-        assert kw["temperature"] == 0
+        assert "temperature" not in kw  # this model rejects it
         r = self.replies.pop(0)
         if isinstance(r, Exception):
             raise r

@@ -1,4 +1,4 @@
-"""A thin wrapper over the Anthropic API: temperature 0, retries, token counts."""
+"""A thin wrapper over the Anthropic API: default sampling, retries, token counts."""
 
 from __future__ import annotations
 
@@ -52,14 +52,13 @@ class LLMClient:
                 r = self._client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
-                    temperature=0,
                     system=system,
                     messages=[{"role": "user", "content": user}],
                 )
                 text = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
                 return Completion(text, int(r.usage.input_tokens), int(r.usage.output_tokens))
-            except Exception:  # rate limit or transient error
-                if attempt == 3:
+            except Exception as e:  # rate limit or transient error; a 400 is our bug, never retried
+                if attempt == 3 or getattr(e, "status_code", None) == 400:
                     raise
                 self._sleep(5 * 2**attempt)
         raise RuntimeError("unreachable")

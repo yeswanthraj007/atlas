@@ -58,3 +58,10 @@ rejection, reported in full.
 One trial per checkpoint is logged (primary model, three targets together).
 Disclosure: the same filings were used in earlier backtests with weaker models; this test
 uses only releases that did not exist when the model was trained.
+
+## Amendment 1 (2026-11-09, before any prediction was logged)
+The API rejects the `temperature` parameter for claude-sonnet-5-5 ("Extra inputs are not
+permitted"), so "temperature 0" in Setup cannot be applied. Calls use the model's default
+sampling, one call per release, and the single logged output is the prediction (no re-draws,
+no averaging). Nothing else changes. Found by the first real API call, on a synthetic snippet
+that was not logged.
